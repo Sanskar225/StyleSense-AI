@@ -33,11 +33,41 @@ export class ClassifierService {
       originalSubject?: string;
     }
   ): ClassificationResult {
-    const text = replyText.toLowerCase();
     const prospectName = context?.prospectName || 'there';
     const companyName = context?.companyName || 'your company';
 
-    // 1. Unsubscribe Detection (Highest priority for legal/compliance)
+    // 0. Handle empty or whitespace inputs defensively
+    if (!replyText || replyText.trim().length === 0) {
+      return {
+        intent: 'needs_info',
+        confidence: 0.5,
+        extractedSignals: ['Empty or whitespace reply'],
+        suggestedAction: 'Wait for substantial prospect input or follow up manually.',
+        draftedResponse: {
+          subject: context?.originalSubject ? `Re: ${context.originalSubject}` : 'Follow up - StyleSense AI',
+          body: `Hi ${prospectName},\n\nThanks for reaching out! Did you have a specific question regarding StyleSense AI?\n\nBest,\nSanskar\nStyleSense AI`
+        }
+      };
+    }
+
+    // 0b. Detect and sanitize prompt injection / jailbreak attempts
+    const injectionPatterns = [
+      /ignore (?:all )?previous instructions/i,
+      /system override/i,
+      /jailbreak/i,
+      /you are now a/i,
+      /output intent:/i,
+      /classify (?:this )?as interested/i
+    ];
+    let sanitizedText = replyText;
+    const hasInjection = injectionPatterns.some(p => p.test(replyText));
+    for (const p of injectionPatterns) {
+      sanitizedText = sanitizedText.replace(p, '[SANITIZED_PROMPT_INJECTION]');
+    }
+
+    const text = sanitizedText.toLowerCase();
+
+    // 1. Unsubscribe Detection (Strict highest priority for GDPR/CAN-SPAM compliance)
     const unsubKeywords = [
       'unsubscribe',
       'remove me',

@@ -2,11 +2,23 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { authenticateJWT } from '../middleware/auth.middleware.js';
-import { AgentService } from '../services/agent.service.js';
+import { AgentService, AGENT_TOOLS } from '../services/agent.service.js';
 
 export function createAgentRouter(prisma: PrismaClient): Router {
   const router = Router();
   router.use(authenticateJWT);
+
+  // GET /api/agent/tools - Inspect registered Function-Calling Tool Specifications (Section 3.4)
+  router.get('/tools', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: {
+        tools: AGENT_TOOLS,
+        toolCallingProtocol: 'OpenAI/Gemini JSON Schema Function Calling',
+        supportedFlow: 'Two-step search-then-extract'
+      }
+    });
+  });
 
   const discoverSchema = z.object({
     industry: z.string().default('Apparel & Fashion'),

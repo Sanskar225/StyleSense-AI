@@ -74,7 +74,17 @@ const PROHIBITED_UNVERIFIED_PATTERNS = [
   /best in the world/i,
   /synergistic/i,
   /game-changing/i,
-  /unprecedented growth/i
+  /unprecedented growth/i,
+  /guaranteed (?:roi|results|\d+%)/i,
+  /miracle/i,
+  /proprietary breakthrough/i,
+  /revolutionary AI/i,
+  /secret algorithm/i,
+  /zero-risk/i,
+  /10x your/i,
+  /triple your/i,
+  /skyrocket/i,
+  /we guarantee/i
 ];
 
 export class GroundingService {
@@ -126,12 +136,22 @@ export class GroundingService {
           blockedTokens.push('pain_point_category');
         }
       }
+
+      // If research notes specifically recorded a pain point, ensure token aligns
+      const research = storedLead.researchNotes || {};
+      if (research.painPointCategory) {
+        const storedNorm = research.painPointCategory.trim().toLowerCase();
+        if (storedNorm !== normalizedPainPoint && !normalizedPainPoint.includes(storedNorm) && !storedNorm.includes(normalizedPainPoint)) {
+          violations.push(`pain_point_category '${tokens.pain_point_category}' contradicts stored research category '${research.painPointCategory}'`);
+          blockedTokens.push('pain_point_category');
+        }
+      }
     } else {
       violations.push('pain_point_category is required');
       blockedTokens.push('pain_point_category');
     }
 
-    // 5. Verify Observed Signal is verified in research notes
+    // 5. Cross-reference Observed Signal against stored research notes
     const research = storedLead.researchNotes || {};
     const storedSignalShort = research.observedSignalShort || research.signal || '';
     const storedSignalSentence = research.observedSignalSentence || research.signalSentence || '';
@@ -144,6 +164,19 @@ export class GroundingService {
     if (!tokens.observed_signal_sentence || tokens.observed_signal_sentence.trim().length < 10) {
       violations.push('observed_signal_sentence is missing or ungrounded');
       blockedTokens.push('observed_signal_sentence');
+    } else if (storedSignalSentence && storedSignalSentence.trim().length > 0) {
+      // Semantic grounding verification: ensure token sentence references stored facts
+      const extractKeywords = (str: string) =>
+        str.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 3 && !['your', 'this', 'that', 'with', 'have', 'from', 'about', 'recent', 'will', 'brand', 'collection', 'strategic'].includes(w));
+      
+      const storedKeywords = new Set(extractKeywords(storedSignalSentence));
+      const tokenKeywords = extractKeywords(tokens.observed_signal_sentence);
+      const overlap = tokenKeywords.filter(w => storedKeywords.has(w));
+
+      if (storedKeywords.size > 0 && overlap.length === 0) {
+        violations.push(`observed_signal_sentence is completely ungrounded from stored research fact: '${storedSignalSentence}'`);
+        blockedTokens.push('observed_signal_sentence');
+      }
     }
 
     // 6. Check for prohibited buzzwords or unverifiable claims in any token
@@ -153,6 +186,18 @@ export class GroundingService {
           if (pattern.test(value)) {
             violations.push(`Token '${key}' contains unverifiable claim pattern: ${pattern}`);
             blockedTokens.push(key);
+          }
+        }
+
+        // 7. Extreme Metric Sanity Check: Claims claiming > 50% improvement without verified citation
+        const pctMatches = value.match(/(\d+)%/g);
+        if (pctMatches) {
+          for (const m of pctMatches) {
+            const pctVal = parseInt(m.replace('%', ''), 10);
+            if (pctVal > 50) {
+              violations.push(`Token '${key}' contains an unverified extreme metric (${pctVal}%). B2B apparel benchmarks cap automated claims at 50% to prevent hallucination.`);
+              blockedTokens.push(key);
+            }
           }
         }
       }

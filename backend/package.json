@@ -16,6 +16,7 @@
     "test:api": "vitest run tests/api.test.ts",
     "test:grounding": "vitest run tests/grounding.test.ts",
     "test:audit": "vitest run tests/adversarial-audit.test.ts",
+    "test:agent": "vitest run tests/ai-agent-audit.test.ts",
     "eval:replies": "tsx ../eval/evaluate_replies.ts"
   },
   "dependencies": {
