@@ -1,6 +1,19 @@
 import React from 'react';
 import { Lead } from '../services/api';
-import { X, ExternalLink, ShieldCheck, Mail, Eye, MessageSquare, History, Award, Layers } from 'lucide-react';
+import { 
+  X, 
+  ExternalLink, 
+  ShieldCheck, 
+  Mail, 
+  Eye, 
+  MessageSquare, 
+  History, 
+  Award, 
+  Layers, 
+  AlertTriangle, 
+  CheckCircle2, 
+  ShieldAlert 
+} from 'lucide-react';
 
 interface LeadDetailDrawerProps {
   lead: Lead | null;
@@ -9,6 +22,8 @@ interface LeadDetailDrawerProps {
   onSimulateOpen: (lead: Lead) => void;
   onSimulateReply: (lead: Lead) => void;
   onRecomputeScore: (lead: Lead) => void;
+  onSimulateUnsubscribe: (lead: Lead) => void;
+  onTestSendSuppressed: (lead: Lead) => void;
   isRecomputing: boolean;
 }
 
@@ -19,6 +34,8 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
   onSimulateOpen,
   onSimulateReply,
   onRecomputeScore,
+  onSimulateUnsubscribe,
+  onTestSendSuppressed,
   isRecomputing
 }) => {
   if (!lead) return null;
@@ -121,6 +138,93 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
                 <div className="text-xl font-bold text-indigo-600">{engScore} <span className="text-xs text-gray-400 font-normal">/ 50 max</span></div>
                 <div className="text-[11px] text-gray-500 mt-1">Delivered, Opens & Replies</div>
               </div>
+            </div>
+          </div>
+
+          {/* Deliverability, Tracking & Compliance Center (Section 3.2) */}
+          <div className="border border-gray-200 rounded-xl p-4 bg-slate-50/70">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                Deliverability & Compliance Center (CAN-SPAM / GDPR)
+              </h3>
+              {lead.status === 'UNSUBSCRIBED' ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                  <ShieldAlert className="w-3 h-3" /> Suppressed
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Eligible
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              {/* Tracking Token & Pixel Links */}
+              <div className="bg-white p-2.5 rounded-lg border border-gray-200">
+                <div className="flex justify-between items-center text-gray-600">
+                  <span className="font-semibold text-[11px]">Tracking Token:</span>
+                  <span className="font-mono text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{lead.trackingToken}</span>
+                </div>
+                <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap items-center gap-3 text-[11px]">
+                  <a
+                    href={`/api/tracking/pixel/${lead.trackingToken}.png`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                  >
+                    <Eye className="w-3 h-3" /> Test 1x1 Pixel Hit ↗
+                  </a>
+                  <a
+                    href={`/api/tracking/unsubscribe/${lead.trackingToken}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-rose-600 hover:text-rose-800 flex items-center gap-1 font-medium"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Open Unsubscribe Page ↗
+                  </a>
+                </div>
+              </div>
+
+              {/* Compliance Enforcement Status */}
+              {lead.status === 'UNSUBSCRIBED' ? (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3">
+                  <div className="font-semibold text-rose-800 flex items-center gap-1.5 mb-1 text-xs">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Outreach Gate: BLOCKED (HTTP 409 RECIPIENT_SUPPRESSED)</span>
+                  </div>
+                  <p className="text-rose-700 text-[11px] leading-relaxed">
+                    Recipient is in <code className="font-mono bg-rose-100 px-1 py-0.5 rounded text-[10px]">suppression_list</code>. All outreach sends are blocked at the database boundary before any provider call.
+                  </p>
+                  <div className="mt-2.5">
+                    <button
+                      onClick={() => onTestSendSuppressed(lead)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-colors"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      <span>Test Send (Verify 409 Block Live)</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-50/60 border border-emerald-200 rounded-lg p-2.5 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-emerald-800 flex items-center gap-1.5 text-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>CAN-SPAM Verified & Ready</span>
+                    </div>
+                    <p className="text-emerald-700 text-[11px] mt-0.5">
+                      Footer includes physical address & RFC 8058 1-click opt-out.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onSimulateUnsubscribe(lead)}
+                    className="px-2.5 py-1 rounded bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-medium text-[11px] transition-colors shrink-0"
+                  >
+                    Simulate Opt-Out 🛑
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

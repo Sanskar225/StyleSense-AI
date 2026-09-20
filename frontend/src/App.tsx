@@ -115,6 +115,29 @@ export const App: React.FC = () => {
     await loadData();
   };
 
+  const handleSimulateUnsubscribe = async (lead: Lead) => {
+    try {
+      await api.simulateUnsubscribe(lead.id);
+      showToast(`🛑 ${lead.email} opted out & permanently added to suppression list. Score reset to 0.`);
+      await loadData();
+      const updated = await api.getLead(lead.id);
+      setSelectedLead(updated);
+    } catch (err: any) {
+      showToast(`Failed to unsubscribe: ${err?.message || 'Error'}`);
+    }
+  };
+
+  const handleTestSendSuppressed = async (lead: Lead) => {
+    try {
+      await api.sendEmail(lead.id);
+      showToast('Sent successfully');
+      await loadData();
+    } catch (err: any) {
+      const msg = err?.error?.message || err?.message || 'HTTP 409 Conflict: Recipient is in suppression list';
+      showToast(`🛑 [RECIPIENT_SUPPRESSED] ${msg}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
       {/* Toast Notification */}
@@ -216,6 +239,8 @@ export const App: React.FC = () => {
         onSimulateOpen={handleSimulateOpen}
         onSimulateReply={(lead) => setReplyModalLead(lead)}
         onRecomputeScore={handleRecomputeLeadScore}
+        onSimulateUnsubscribe={handleSimulateUnsubscribe}
+        onTestSendSuppressed={handleTestSendSuppressed}
         isRecomputing={isRecomputing}
       />
 

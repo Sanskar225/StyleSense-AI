@@ -99,6 +99,7 @@ export class EmailService {
             text: options.bodyText,
             headers: {
               'List-Unsubscribe': `<${unsubscribeUrl}>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
               'X-Entity-Ref-ID': messageId
             }
           })

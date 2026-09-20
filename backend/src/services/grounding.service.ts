@@ -283,7 +283,7 @@ export class GroundingService {
       tokens.sender_name || 'Sanskar',
       `StyleSense AI`,
       psBlockText,
-      unsubscribeUrl ? `\n\n---\nTo unsubscribe: ${unsubscribeUrl}` : ''
+      unsubscribeUrl ? `\n\n---\nStyleSense AI, Inc. | 100 Fashion Ave, Suite 400, New York, NY 10018\nYou received this message based on public apparel industry research.\nTo unsubscribe from future communications: ${unsubscribeUrl}` : ''
     ].filter(Boolean).join('\n');
 
     // Rich HTML body with embedded tracking pixel and compliance footer

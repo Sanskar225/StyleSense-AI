@@ -280,6 +280,44 @@ class ApiClient {
     );
   }
 
+  public async simulateUnsubscribe(id: string) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      email: string;
+      suppressed: boolean;
+      scoreResult: any;
+    }>(`/api/tracking/simulate-unsubscribe/${id}`, {
+      method: 'POST'
+    });
+  }
+
+  public async checkSuppression(email: string) {
+    return this.request<{
+      email: string;
+      isSuppressed: boolean;
+      suppression: any;
+    }>(`/api/tracking/check-suppression/${encodeURIComponent(email)}`);
+  }
+
+  public async getSuppressionList(params: { search?: string; page?: number; limit?: number } = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.set('search', params.search);
+    if (params.page) query.set('page', params.page.toString());
+    if (params.limit) query.set('limit', params.limit.toString());
+
+    return this.request<{
+      success: boolean;
+      data: any[];
+      pagination: {
+        page: number;
+        limit: number;
+        totalCount: number;
+        totalPages: number;
+      };
+    }>(`/api/tracking/suppression?${query.toString()}`);
+  }
+
   public async recomputeScore(id: string) {
     return this.request<{ success: boolean; data: { lead: Lead; scoreResult: any } }>(
       `/api/leads/${id}/recompute-score`,

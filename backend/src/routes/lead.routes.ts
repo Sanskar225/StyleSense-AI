@@ -335,7 +335,12 @@ export function createLeadRouter(prisma: PrismaClient): Router {
         }
       });
 
-      // Create lead
+      // Check if email is already in suppression list
+      const suppressed = await prisma.suppression.findUnique({
+        where: { email: body.email }
+      });
+
+      // Create lead (if suppressed, set status to UNSUBSCRIBED immediately)
       const lead = await prisma.lead.create({
         data: {
           companyId: company.id,
@@ -345,21 +350,36 @@ export function createLeadRouter(prisma: PrismaClient): Router {
           jobTitle: body.jobTitle,
           department: body.department,
           sourceUrl: body.sourceUrl,
+          status: suppressed ? LeadStatus.UNSUBSCRIBED : LeadStatus.DISCOVERED,
           researchNotes: body.researchNotes ? (body.researchNotes as Prisma.InputJsonValue) : Prisma.DbNull
         },
         include: { company: true }
       });
 
-      // Calculate initial fit score
+      if (suppressed && !suppressed.leadId) {
+        await prisma.suppression.update({
+          where: { email: body.email },
+          data: { leadId: lead.id }
+        });
+      }
+
+      // Calculate initial fit score (will evaluate to 0 if suppressed)
       await ScoringService.recomputeAndSaveScore(
         prisma,
         lead.id,
-        'MANUAL_LEAD_CREATED',
-        `New prospect created for ${company.name} (${lead.jobTitle})`
+        suppressed ? 'MANUAL_LEAD_CREATED_SUPPRESSED' : 'MANUAL_LEAD_CREATED',
+        suppressed 
+          ? `New prospect created but already on suppression list (${suppressed.reason}); score set to 0`
+          : `New prospect created for ${company.name} (${lead.jobTitle})`
       );
 
       const createdLead = await LeadService.getLeadById(prisma, lead.id);
-      res.status(201).json({ success: true, data: createdLead });
+      res.status(201).json({ 
+        success: true, 
+        data: createdLead,
+        suppressed: !!suppressed,
+        warning: suppressed ? `Recipient is on the suppression list (${suppressed.reason}). Outreach sending is blocked.` : undefined
+      });
     } catch (err) {
       next(err);
     }

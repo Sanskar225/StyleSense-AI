@@ -226,17 +226,61 @@ describe('Adversarial 30% Criteria Audit — Schema, Validation, Errors & Event 
   // ============================================================================
   describe('3. Event / Derived-State Separation (Mathematical Proof)', () => {
     it('proves that a wiped/corrupted score is 100% deterministically reconstructed from raw event history', async () => {
-      // 1. Find a lead with engagement history and score
-      const lead = await prisma.lead.findFirst({
+      // 1. Find a lead with engagement history and positive score
+      let lead = await prisma.lead.findFirst({
         where: {
-          score: { isNot: null },
+          status: { not: 'UNSUBSCRIBED' },
+          score: { currentScore: { gt: 0 } },
           events: { some: {} }
         },
         include: { score: true, events: true, company: true }
       });
+
+      if (!lead) {
+        // Fallback: create dedicated lead for deterministic replay test
+        const company = await prisma.company.findFirst();
+        lead = await prisma.lead.create({
+          data: {
+            companyId: company!.id,
+            firstName: 'Deterministic',
+            lastName: 'Replay',
+            email: `replay.proof.${Date.now()}@stylesense.ai`,
+            jobTitle: 'Head of Merchandising',
+            sourceUrl: 'https://wwd.com/replay-proof',
+            status: 'OPENED'
+          },
+          include: { score: true, events: true, company: true }
+        });
+        await prisma.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: 'DELIVERED',
+            payload: { deliveredAt: new Date().toISOString() }
+          }
+        });
+        await prisma.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: 'OPENED',
+            payload: { openedAt: new Date().toISOString() }
+          }
+        });
+        await ScoringService.recomputeAndSaveScore(prisma, lead.id, 'REPLAY_INIT');
+        lead = await prisma.lead.findUnique({
+          where: { id: lead.id },
+          include: { score: true, events: true, company: true }
+        });
+      }
+
       expect(lead).toBeDefined();
 
-      const originalScore = lead!.score?.currentScore;
+      // Ensure lead's derived score is strictly computed from its current events
+      const baseline = await ScoringService.recomputeAndSaveScore(
+        prisma,
+        lead!.id,
+        'BASELINE_SYNC'
+      );
+      const originalScore = baseline.newScore;
       expect(originalScore).toBeGreaterThan(0);
 
       // 2. Adversarial action: deliberately corrupt the derived score table
