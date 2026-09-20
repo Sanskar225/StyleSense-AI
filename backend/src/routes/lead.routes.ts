@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient, LeadStatus, ScoreTier } from '@prisma/client';
+import { PrismaClient, Prisma, LeadStatus, ScoreTier } from '@prisma/client';
 import { z } from 'zod';
 import { authenticateJWT } from '../middleware/auth.middleware.js';
 import { LeadService } from '../services/lead.service.js';
@@ -274,6 +274,186 @@ export function createLeadRouter(prisma: PrismaClient): Router {
           scoreResult: result
         }
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/leads - Create new lead manually with company and initial fit score
+  router.post('/', async (req: Request, res: Response, next) => {
+    try {
+      const createLeadSchema = z.object({
+        firstName: z.string().min(1, 'First name is required').max(50),
+        lastName: z.string().min(1, 'Last name is required').max(50),
+        email: z.string().email('Invalid email address format').transform((v) => v.trim().toLowerCase()),
+        jobTitle: z.string().min(1, 'Job title is required').max(100),
+        department: z.string().default('Merchandising'),
+        sourceUrl: z.string().url('Source URL must be a valid URL'),
+        company: z.object({
+          name: z.string().min(1, 'Company name is required'),
+          domain: z.string().min(1, 'Company domain is required').transform((v) => v.trim().toLowerCase()),
+          industry: z.string().default('Apparel & Fashion'),
+          sizeRange: z.string().default('201-1000'),
+          region: z.string().default('North America')
+        }),
+        researchNotes: z.record(z.any()).optional()
+      });
+
+      const body = createLeadSchema.parse(req.body);
+
+      // Check if lead already exists
+      const existing = await prisma.lead.findUnique({
+        where: { email: body.email }
+      });
+
+      if (existing) {
+        res.status(409).json({
+          error: {
+            code: 'DUPLICATE_RESOURCE',
+            message: `A lead with email ${body.email} already exists.`,
+            statusCode: 409
+          }
+        });
+        return;
+      }
+
+      // Upsert company
+      const company = await prisma.company.upsert({
+        where: { domain: body.company.domain },
+        create: {
+          name: body.company.name,
+          domain: body.company.domain,
+          industry: body.company.industry,
+          sizeRange: body.company.sizeRange,
+          region: body.company.region
+        },
+        update: {
+          name: body.company.name,
+          industry: body.company.industry,
+          sizeRange: body.company.sizeRange,
+          region: body.company.region
+        }
+      });
+
+      // Create lead
+      const lead = await prisma.lead.create({
+        data: {
+          companyId: company.id,
+          firstName: body.firstName,
+          lastName: body.lastName,
+          email: body.email,
+          jobTitle: body.jobTitle,
+          department: body.department,
+          sourceUrl: body.sourceUrl,
+          researchNotes: body.researchNotes ? (body.researchNotes as Prisma.InputJsonValue) : Prisma.DbNull
+        },
+        include: { company: true }
+      });
+
+      // Calculate initial fit score
+      await ScoringService.recomputeAndSaveScore(
+        prisma,
+        lead.id,
+        'MANUAL_LEAD_CREATED',
+        `New prospect created for ${company.name} (${lead.jobTitle})`
+      );
+
+      const createdLead = await LeadService.getLeadById(prisma, lead.id);
+      res.status(201).json({ success: true, data: createdLead });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // PATCH /api/leads/:id - Update lead details
+  router.patch('/:id', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = leadIdParamSchema.parse(req.params);
+
+      const updateLeadSchema = z.object({
+        firstName: z.string().min(1).max(50).optional(),
+        lastName: z.string().min(1).max(50).optional(),
+        jobTitle: z.string().min(1).max(100).optional(),
+        department: z.string().optional(),
+        sourceUrl: z.string().url().optional(),
+        researchNotes: z.record(z.any()).optional()
+      });
+
+      const body = updateLeadSchema.parse(req.body);
+      const { researchNotes, ...restData } = body;
+      const updatePayload: Prisma.LeadUpdateInput = { ...restData };
+      if (researchNotes !== undefined) {
+        updatePayload.researchNotes = researchNotes ? (researchNotes as Prisma.InputJsonValue) : Prisma.DbNull;
+      }
+
+      const lead = await prisma.lead.update({
+        where: { id },
+        data: updatePayload,
+        include: { company: true, score: true }
+      });
+
+      // Recompute score in case jobTitle or attributes changed
+      if (body.jobTitle) {
+        await ScoringService.recomputeAndSaveScore(
+          prisma,
+          lead.id,
+          'LEAD_TITLE_UPDATED',
+          `Job title updated to ${body.jobTitle}`
+        );
+      }
+
+      const updated = await LeadService.getLeadById(prisma, id);
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // DELETE /api/leads/:id - Delete lead with cascading removal of events and scores
+  router.delete('/:id', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = leadIdParamSchema.parse(req.params);
+
+      await prisma.lead.delete({
+        where: { id }
+      });
+
+      res.json({
+        success: true,
+        message: `Lead with ID ${id} and all related scores/events were successfully deleted.`
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/leads/:id/events - Paginated discrete raw email events for a lead
+  router.get('/:id/events', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = leadIdParamSchema.parse(req.params);
+
+      const events = await prisma.emailEvent.findMany({
+        where: { leadId: id },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      res.json({ success: true, data: events });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/leads/:id/history - Complete score history audit trail for a lead
+  router.get('/:id/history', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = leadIdParamSchema.parse(req.params);
+
+      const history = await prisma.scoreHistory.findMany({
+        where: { leadId: id },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      res.json({ success: true, data: history });
     } catch (err) {
       next(err);
     }

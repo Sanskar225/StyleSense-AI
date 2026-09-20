@@ -345,56 +345,57 @@ export class AgentService {
       originalSubject: `${lead.company.name} - StyleSense AI`
     });
 
-    // 2. Record raw REPLIED event in immutable event store
+    // 2. Atomically record raw REPLIED event, update suppression/status, and recompute score
     const messageId = `reply_sim_${Date.now()}@prospect.com`;
-    await prisma.emailEvent.create({
-      data: {
-        leadId: lead.id,
-        campaignId: campaignId || null,
-        eventType: EventType.REPLIED,
-        messageId,
-        payload: {
-          replyText,
-          intent: classification.intent,
-          confidence: classification.confidence,
-          extractedSignals: classification.extractedSignals,
-          suggestedAction: classification.suggestedAction,
-          receivedAt: new Date().toISOString()
-        }
-      }
-    });
-
-    // 3. Update lead status & compliance
     let newStatus: LeadStatus = LeadStatus.REPLIED;
-    if (classification.intent === 'unsubscribe') {
-      newStatus = LeadStatus.UNSUBSCRIBED;
-      // Add to suppression list immediately
-      await prisma.suppression.upsert({
-        where: { email: lead.email.toLowerCase() },
-        create: {
-          email: lead.email.toLowerCase(),
+    let scoreResult: any;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.emailEvent.create({
+        data: {
           leadId: lead.id,
-          reason: 'UNSUBSCRIBE',
-          notes: 'Auto-suppressed from simulated reply opt-out classification'
-        },
-        update: {
-          notes: 'Updated suppression timestamp from reply opt-out'
+          campaignId: campaignId || null,
+          eventType: EventType.REPLIED,
+          messageId,
+          payload: {
+            replyText,
+            intent: classification.intent,
+            confidence: classification.confidence,
+            extractedSignals: classification.extractedSignals,
+            suggestedAction: classification.suggestedAction,
+            receivedAt: new Date().toISOString()
+          }
         }
       });
-    }
 
-    await prisma.lead.update({
-      where: { id: lead.id },
-      data: { status: newStatus }
+      if (classification.intent === 'unsubscribe') {
+        newStatus = LeadStatus.UNSUBSCRIBED;
+        await tx.suppression.upsert({
+          where: { email: lead.email.toLowerCase() },
+          create: {
+            email: lead.email.toLowerCase(),
+            leadId: lead.id,
+            reason: 'UNSUBSCRIBE',
+            notes: 'Auto-suppressed from simulated reply opt-out classification'
+          },
+          update: {
+            notes: 'Updated suppression timestamp from reply opt-out'
+          }
+        });
+      }
+
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: { status: newStatus }
+      });
+
+      scoreResult = await ScoringService.recomputeAndSaveScore(
+        tx,
+        lead.id,
+        `REPLY_CLASSIFIED_${classification.intent.toUpperCase()}`,
+        `Prospect replied with intent '${classification.intent}' (${classification.confidence * 100}% confidence)`
+      );
     });
-
-    // 4. Recompute score dynamically from history
-    const scoreResult = await ScoringService.recomputeAndSaveScore(
-      prisma,
-      lead.id,
-      `REPLY_CLASSIFIED_${classification.intent.toUpperCase()}`,
-      `Prospect replied with intent '${classification.intent}' (${classification.confidence * 100}% confidence)`
-    );
 
     return {
       classification,

@@ -44,34 +44,36 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
       const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
       const ipHash = crypto.createHash('sha256').update(ip).digest('hex').substring(0, 12);
 
-      await prisma.emailEvent.create({
-        data: {
-          leadId: lead.id,
-          eventType: EventType.OPENED,
-          messageId: `open_${Date.now()}_${token.substring(0, 8)}`,
-          payload: {
-            userAgent,
-            ipHash,
-            openedAt: new Date().toISOString()
+      await prisma.$transaction(async (tx) => {
+        await tx.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: EventType.OPENED,
+            messageId: `open_${Date.now()}_${token.substring(0, 8)}`,
+            payload: {
+              userAgent,
+              ipHash,
+              openedAt: new Date().toISOString()
+            }
           }
-        }
-      });
-
-      // Advance status to OPENED if currently CONTACTED or DISCOVERED
-      if (lead.status === LeadStatus.CONTACTED || lead.status === LeadStatus.DISCOVERED) {
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: { status: LeadStatus.OPENED }
         });
-      }
 
-      // Recompute score from event history
-      await ScoringService.recomputeAndSaveScore(
-        prisma,
-        lead.id,
-        'EMAIL_OPENED',
-        'Prospect opened outreach email (+15 pts)'
-      );
+        // Advance status to OPENED if currently CONTACTED or DISCOVERED
+        if (lead.status === LeadStatus.CONTACTED || lead.status === LeadStatus.DISCOVERED) {
+          await tx.lead.update({
+            where: { id: lead.id },
+            data: { status: LeadStatus.OPENED }
+          });
+        }
+
+        // Recompute score from event history atomically
+        await ScoringService.recomputeAndSaveScore(
+          tx,
+          lead.id,
+          'EMAIL_OPENED',
+          'Prospect opened outreach email (+15 pts)'
+        );
+      });
 
       console.log(`[TRACKING_PIXEL_HIT] Recorded OPENED event for lead ${lead.email} (${lead.firstName})`);
     } catch (err) {
@@ -100,46 +102,45 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
         return;
       }
 
-      // 1. Record UNSUBSCRIBED event in raw event store
-      await prisma.emailEvent.create({
-        data: {
-          leadId: lead.id,
-          eventType: EventType.UNSUBSCRIBED,
-          payload: {
-            reason: 'One-click unsubscribe link clicked by recipient',
-            timestamp: new Date().toISOString()
+      // Atomically record UNSUBSCRIBED event, upsert suppression, update lead status, and reset score
+      await prisma.$transaction(async (tx) => {
+        await tx.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: EventType.UNSUBSCRIBED,
+            payload: {
+              reason: 'One-click unsubscribe link clicked by recipient',
+              timestamp: new Date().toISOString()
+            }
           }
-        }
-      });
+        });
 
-      // 2. Add to Suppression List (strictly honored on all future sends)
-      await prisma.suppression.upsert({
-        where: { email: lead.email.toLowerCase() },
-        create: {
-          email: lead.email.toLowerCase(),
-          leadId: lead.id,
-          reason: 'UNSUBSCRIBE',
-          notes: 'Unsubscribed via email opt-out link'
-        },
-        update: {
-          suppressedAt: new Date(),
-          notes: 'Re-confirmed unsubscribe'
-        }
-      });
+        await tx.suppression.upsert({
+          where: { email: lead.email.toLowerCase() },
+          create: {
+            email: lead.email.toLowerCase(),
+            leadId: lead.id,
+            reason: 'UNSUBSCRIBE',
+            notes: 'Unsubscribed via email opt-out link'
+          },
+          update: {
+            suppressedAt: new Date(),
+            notes: 'Re-confirmed unsubscribe'
+          }
+        });
 
-      // 3. Mark Lead as UNSUBSCRIBED
-      await prisma.lead.update({
-        where: { id: lead.id },
-        data: { status: LeadStatus.UNSUBSCRIBED }
-      });
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: { status: LeadStatus.UNSUBSCRIBED }
+        });
 
-      // 4. Recompute score (will be reset to 0 per scoring config)
-      await ScoringService.recomputeAndSaveScore(
-        prisma,
-        lead.id,
-        'UNSUBSCRIBED',
-        'Lead opted out via unsubscribe link; score reset to 0'
-      );
+        await ScoringService.recomputeAndSaveScore(
+          tx,
+          lead.id,
+          'UNSUBSCRIBED',
+          'Lead opted out via unsubscribe link; score reset to 0'
+        );
+      });
 
       // Render clean confirmation page
       res.send(`
@@ -182,28 +183,31 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
         return;
       }
 
-      await prisma.emailEvent.create({
-        data: {
-          leadId: lead.id,
-          eventType: EventType.OPENED,
-          messageId: `open_sim_${Date.now()}`,
-          payload: { userAgent: 'Simulated Client (Console)', ipHash: 'demo1234' }
-        }
-      });
-
-      if (lead.status === LeadStatus.CONTACTED || lead.status === LeadStatus.DISCOVERED) {
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: { status: LeadStatus.OPENED }
+      let scoreResult: any;
+      await prisma.$transaction(async (tx) => {
+        await tx.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: EventType.OPENED,
+            messageId: `open_sim_${Date.now()}`,
+            payload: { userAgent: 'Simulated Client (Console)', ipHash: 'demo1234' }
+          }
         });
-      }
 
-      const scoreResult = await ScoringService.recomputeAndSaveScore(
-        prisma,
-        lead.id,
-        'EMAIL_OPENED',
-        'Simulated email open (+15 pts)'
-      );
+        if (lead.status === LeadStatus.CONTACTED || lead.status === LeadStatus.DISCOVERED) {
+          await tx.lead.update({
+            where: { id: lead.id },
+            data: { status: LeadStatus.OPENED }
+          });
+        }
+
+        scoreResult = await ScoringService.recomputeAndSaveScore(
+          tx,
+          lead.id,
+          'EMAIL_OPENED',
+          'Simulated email open (+15 pts)'
+        );
+      });
 
       res.json({ success: true, message: 'Simulated email open recorded', scoreResult });
     } catch (err) {

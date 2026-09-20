@@ -117,37 +117,37 @@ export class EmailService {
       console.log(`[EMAIL_SANDBOX_SEND] Delivered outreach to ${options.toEmail} | Subject: "${options.subject}" | MessageId: ${messageId}`);
     }
 
-    // 3. Record DELIVERED event in raw immutable event store
-    await prisma.emailEvent.create({
-      data: {
-        leadId: options.leadId,
-        campaignId: options.campaignId || null,
-        eventType: 'DELIVERED',
-        messageId,
-        payload: {
-          to: options.toEmail,
-          subject: options.subject,
-          provider: ENV.EMAIL_PROVIDER,
-          deliveredAt: new Date().toISOString()
+    // 3. Atomically record DELIVERED event, update status, and recompute score in a single ACID transaction
+    await prisma.$transaction(async (tx) => {
+      await tx.emailEvent.create({
+        data: {
+          leadId: options.leadId,
+          campaignId: options.campaignId || null,
+          eventType: 'DELIVERED',
+          messageId,
+          payload: {
+            to: options.toEmail,
+            subject: options.subject,
+            provider: ENV.EMAIL_PROVIDER,
+            deliveredAt: new Date().toISOString()
+          }
         }
-      }
-    });
+      });
 
-    // 4. Update Lead status to CONTACTED if currently DISCOVERED
-    await prisma.lead.update({
-      where: { id: options.leadId },
-      data: {
-        status: LeadStatus.CONTACTED
-      }
-    });
+      await tx.lead.update({
+        where: { id: options.leadId },
+        data: {
+          status: LeadStatus.CONTACTED
+        }
+      });
 
-    // 5. Recompute score upon delivery event
-    await ScoringService.recomputeAndSaveScore(
-      prisma,
-      options.leadId,
-      'EMAIL_DELIVERED',
-      'Outreach email successfully delivered (+5 pts)'
-    );
+      await ScoringService.recomputeAndSaveScore(
+        tx,
+        options.leadId,
+        'EMAIL_DELIVERED',
+        'Outreach email successfully delivered (+5 pts)'
+      );
+    });
 
     return {
       success: true,

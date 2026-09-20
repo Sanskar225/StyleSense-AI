@@ -10,7 +10,7 @@
  */
 
 import { SCORING_CONFIG } from '../config/scoring.config.js';
-import { PrismaClient, EventType, ScoreTier, LeadStatus } from '@prisma/client';
+import { PrismaClient, Prisma, EventType, ScoreTier, LeadStatus } from '@prisma/client';
 
 export interface ScoreBreakdown {
   fitScore: number;
@@ -178,7 +178,7 @@ export class ScoringService {
    * and update derived LeadScore record.
    */
   public static async recomputeAndSaveScore(
-    prisma: PrismaClient,
+    prisma: PrismaClient | Prisma.TransactionClient,
     leadId: string,
     triggerEvent: string,
     reasonOverride?: string
