@@ -1,0 +1,66 @@
+[
+  {
+    "id": "reply-01",
+    "prospect": "Elena Rostova",
+    "company": "KnitWell Apparel",
+    "text": "Hi Sanskar, thanks for reaching out. We actually just wrapped a quarterly review and inventory allocation across our DTC site and Nordstrom stores is a major headache right now. Can you do 2pm ET this Thursday?",
+    "expectedIntent": "interested",
+    "notes": "Clear buying signal, mentions specific channel pain point and offers a meeting time."
+  },
+  {
+    "id": "reply-02",
+    "prospect": "Marcus Vance",
+    "company": "Aura Activewear",
+    "text": "Hey, this is very timely. We are launching our summer capsule next month and already nervous about markdown risks and stockouts. Send over some calendar slots to chat.",
+    "expectedIntent": "interested",
+    "notes": "Direct confirmation of pain point match and asks for calendar availability."
+  },
+  {
+    "id": "reply-03",
+    "prospect": "Chloe Bennett",
+    "company": "Nordic Loom",
+    "text": "Could you share a one-pager or case study on how your demand forecasting integrates with Shopify Plus and NetSuite? Also what is the typical implementation timeline?",
+    "expectedIntent": "needs_info",
+    "notes": "Prospect requests technical documentation, integration details, and timeline before committing."
+  },
+  {
+    "id": "reply-04",
+    "prospect": "David Chen",
+    "company": "Urban Stitch Co",
+    "text": "Interesting pitch, but how does StyleSense compare against traditional planning software like Blue Yonder? What specific historical POS data do you need?",
+    "expectedIntent": "needs_info",
+    "notes": "Competitive questioning and data requirement inquiry."
+  },
+  {
+    "id": "reply-05",
+    "prospect": "Rachel Adams",
+    "company": "Verona Footwear",
+    "text": "Thanks for checking in Sanskar. We just finalized our Q4 tech budget freeze, so we aren't reviewing any new vendors right now. Please ping me again in February.",
+    "expectedIntent": "not_now",
+    "notes": "Budget timing constraint with explicit permission to follow up next year."
+  },
+  {
+    "id": "reply-06",
+    "prospect": "James Wilson",
+    "company": "Solstice Silk",
+    "text": "Not a priority for us this quarter as we are currently heads-down on our warehouse ERP migration. Check back next spring.",
+    "expectedIntent": "not_now",
+    "notes": "Resource constraint delaying consideration until next season."
+  },
+  {
+    "id": "reply-07",
+    "prospect": "Sophie Laurent",
+    "company": "Atelier Moderne",
+    "text": "I actually transitioned over to Brand Marketing last month. You should reach out to Sarah Jenkins (sjenkins@ateliermoderne.com) who now heads Demand Planning.",
+    "expectedIntent": "wrong_person",
+    "notes": "Role change with explicit referral to correct decision maker."
+  },
+  {
+    "id": "reply-08",
+    "prospect": "Thomas Gray",
+    "company": "Beacon Denim",
+    "text": "Please remove my name and email from your contact list immediately. Unsubscribe.",
+    "expectedIntent": "unsubscribe",
+    "notes": "Explicit opt-out request requiring immediate suppression compliance."
+  }
+]

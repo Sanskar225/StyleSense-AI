@@ -1,0 +1,22 @@
+{
+  "name": "stylesense-lead-engine",
+  "version": "1.0.0",
+  "description": "B2B AI SaaS Lead Generation, Email Marketing & Scoring Platform for Apparel & Fashion",
+  "author": "Sanskar Sinha",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test": "npm --prefix backend run test",
+    "test:scoring": "npm --prefix backend run test:scoring",
+    "test:api": "npm --prefix backend run test:api",
+    "test:grounding": "npm --prefix backend run test:grounding",
+    "eval:replies": "npm --prefix backend run eval:replies",
+    "db:push": "npm --prefix backend run db:push",
+    "db:seed": "npm --prefix backend run db:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

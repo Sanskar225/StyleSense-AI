@@ -1,0 +1,186 @@
+// Prisma schema for StyleSense AI Lead Generation & Email Marketing Platform
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum LeadStatus {
+  DISCOVERED
+  CONTACTED
+  OPENED
+  REPLIED
+  UNSUBSCRIBED
+  BOUNCED
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum EventType {
+  DELIVERED
+  OPENED
+  CLICKED
+  REPLIED
+  UNSUBSCRIBED
+  BOUNCED
+}
+
+enum ScoreTier {
+  COLD
+  WARM
+  HOT
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBE
+  BOUNCE
+  MANUAL
+  COMPLAINT
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         String     @default("sales_rep")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  campaigns    Campaign[]
+
+  @@map("users")
+}
+
+model Company {
+  id          String   @id @default(uuid())
+  name        String
+  domain      String   @unique
+  industry    String   @default("Apparel & Fashion")
+  sizeRange   String   // e.g. "50-200", "201-500", "501-1000", "1000+"
+  region      String   // e.g. "North America", "Europe", "UK"
+  website     String?
+  description String?
+  signals     Json?    // JSONB: observed signals, hiring info, markdown trends, tech stack
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  leads       Lead[]
+
+  @@map("companies")
+}
+
+model Lead {
+  id            String        @id @default(uuid())
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  firstName     String
+  lastName      String
+  email         String        @unique
+  jobTitle      String
+  department    String        @default("Merchandising") // Merchandising, Supply Chain, Demand Planning, Inventory
+  linkedinUrl   String?
+  sourceUrl     String        // Source citation URL for grounding verification
+  status        LeadStatus    @default(DISCOVERED)
+  trackingToken String        @unique @default(uuid()) // Unique token for tracking pixel & unsubscribe HMAC
+  researchNotes Json?         // JSONB: grounded research signals (observed_signal_sentence, pain_point_category, etc.)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  score         LeadScore?
+  scoreHistory  ScoreHistory[]
+  events        EmailEvent[]
+  suppression   Suppression?
+
+  @@index([companyId])
+  @@index([status])
+  @@index([email])
+  @@map("leads")
+}
+
+model Campaign {
+  id          String         @id @default(uuid())
+  name        String
+  description String?
+  icpCriteria Json           // JSONB: { industry, region, companySize, targetTitles }
+  status      CampaignStatus @default(ACTIVE)
+  createdById String?
+  createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  events      EmailEvent[]
+
+  @@map("campaigns")
+}
+
+// Raw immutable event store (Separated from derived state per Section 3.1)
+model EmailEvent {
+  id         String     @id @default(uuid())
+  leadId     String
+  lead       Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId String?
+  campaign   Campaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  eventType  EventType
+  messageId  String?
+  payload    Json?      // JSONB: IP hash, user agent, reply body, classified intent, confidence
+  createdAt  DateTime   @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([eventType])
+  @@index([campaignId])
+  @@map("email_events")
+}
+
+// Derived state (Recomputable at any time from raw events and ICP fit)
+model LeadScore {
+  id               String    @id @default(uuid())
+  leadId           String    @unique
+  lead             Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  currentScore     Int       @default(0) // 0 to 100
+  fitScore         Int       @default(0) // 0 to 50
+  engagementScore  Int       @default(0) // 0 to 50
+  tier             ScoreTier @default(COLD)
+  lastComputedAt   DateTime  @default(now())
+
+  @@index([currentScore(sort: Desc)])
+  @@index([tier])
+  @@map("lead_scores")
+}
+
+// Complete audit trail of score shifts with human-readable rationale
+model ScoreHistory {
+  id            String   @id @default(uuid())
+  leadId        String
+  lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  previousScore Int
+  newScore      Int
+  delta         Int
+  reason        String   // Explanation of why score changed
+  triggerEvent  String   // e.g. "ICP_EVALUATED", "EMAIL_OPENED", "REPLY_CLASSIFIED"
+  breakdown     Json     // JSONB: factor breakdown
+  createdAt     DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@map("score_history")
+}
+
+// Dedicated suppression list to ensure GDPR and CAN-SPAM opt-out compliance
+model Suppression {
+  id           String            @id @default(uuid())
+  email        String            @unique
+  reason       SuppressionReason @default(UNSUBSCRIBE)
+  leadId       String?           @unique
+  lead         Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  suppressedAt DateTime          @default(now())
+  notes        String?
+
+  @@index([email])
+  @@map("suppression_list")
+}
