@@ -15,13 +15,25 @@ export function createLeadRouter(prisma: PrismaClient): Router {
 
   // Validation schemas
   const listQuerySchema = z.object({
-    page: z.string().optional().transform((v) => (v ? parseInt(v, 10) : 1)),
-    limit: z.string().optional().transform((v) => (v ? parseInt(v, 10) : 10)),
+    page: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseInt(v, 10) : 1))
+      .refine((v) => !isNaN(v) && v >= 1, { message: 'Page must be a positive integer >= 1' }),
+    limit: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseInt(v, 10) : 10))
+      .refine((v) => !isNaN(v) && v >= 1 && v <= 100, { message: 'Limit must be between 1 and 100' }),
     status: z.nativeEnum(LeadStatus).optional(),
     tier: z.nativeEnum(ScoreTier).optional(),
-    search: z.string().optional(),
+    search: z.string().max(100, 'Search query cannot exceed 100 characters').optional(),
     sortBy: z.enum(['score', 'createdAt', 'name']).optional(),
     sortOrder: z.enum(['asc', 'desc']).optional()
+  });
+
+  const leadIdParamSchema = z.object({
+    id: z.string().uuid('Lead ID must be a valid UUID format')
   });
 
   // GET /api/leads/metrics - KPI stats for console
@@ -48,7 +60,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // GET /api/leads/:id - Detail view with relations
   router.get('/:id', async (req: Request, res: Response, next) => {
     try {
-      const id = req.params.id as string;
+      const { id } = leadIdParamSchema.parse(req.params);
       const lead = await LeadService.getLeadById(prisma, id);
 
       if (!lead) {
@@ -71,7 +83,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // POST /api/leads/:id/preview-email - Grounding verification and Appendix A preview
   router.post('/:id/preview-email', async (req: Request, res: Response, next) => {
     try {
-      const id = req.params.id as string;
+      const { id } = leadIdParamSchema.parse(req.params);
       const lead = await LeadService.getLeadById(prisma, id);
 
       if (!lead) {
@@ -146,7 +158,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // POST /api/leads/:id/send - Send cold outreach email
   router.post('/:id/send', async (req: Request, res: Response, next) => {
     try {
-      const id = req.params.id as string;
+      const { id } = leadIdParamSchema.parse(req.params);
       const lead = await LeadService.getLeadById(prisma, id);
 
       if (!lead) {
@@ -245,7 +257,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // POST /api/leads/:id/recompute-score - Recomputes score from event history
   router.post('/:id/recompute-score', async (req: Request, res: Response, next) => {
     try {
-      const id = req.params.id as string;
+      const { id } = leadIdParamSchema.parse(req.params);
       const result = await ScoringService.recomputeAndSaveScore(
         prisma,
         id,

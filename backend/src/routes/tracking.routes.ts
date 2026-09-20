@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient, EventType, LeadStatus } from '@prisma/client';
+import { z } from 'zod';
 import { ScoringService } from '../services/scoring.service.js';
 import crypto from 'crypto';
 
@@ -81,6 +82,13 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
   // GET /api/tracking/unsubscribe/:token - Working Unsubscribe Link
   router.get('/unsubscribe/:token', async (req: Request, res: Response) => {
     const token = req.params.token as string;
+
+    // Check valid UUID token
+    const tokenParsed = z.string().uuid().safeParse(token);
+    if (!tokenParsed.success) {
+      res.status(400).send('<h1>Invalid unsubscribe token format.</h1>');
+      return;
+    }
 
     try {
       const lead = await prisma.lead.findUnique({
@@ -166,7 +174,7 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
   // POST /api/tracking/simulate-open/:leadId - Helper for UI demoing
   router.post('/simulate-open/:leadId', async (req: Request, res: Response, next) => {
     try {
-      const leadId = req.params.leadId as string;
+      const { leadId } = z.object({ leadId: z.string().uuid('leadId must be a valid UUID') }).parse(req.params);
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
 
       if (!lead) {
