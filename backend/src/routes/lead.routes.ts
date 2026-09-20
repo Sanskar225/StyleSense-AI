@@ -48,7 +48,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // GET /api/leads/:id - Detail view with relations
   router.get('/:id', async (req: Request, res: Response, next) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const lead = await LeadService.getLeadById(prisma, id);
 
       if (!lead) {
@@ -71,7 +71,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // POST /api/leads/:id/preview-email - Grounding verification and Appendix A preview
   router.post('/:id/preview-email', async (req: Request, res: Response, next) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const lead = await LeadService.getLeadById(prisma, id);
 
       if (!lead) {
@@ -95,8 +95,8 @@ export function createLeadRouter(prisma: PrismaClient): Router {
         observed_signal_sentence: notes.observedSignalSentence || `your recent merchandise initiatives at ${lead.company.name}`,
         company_segment: notes.companySegment || 'apparel and fashion',
         pain_point_category: notes.painPointCategory || 'overstock or heavy markdowns',
-        valuePropForPainPoint: notes.valuePropForPainPoint || 'forecast seasonal SKU demand with pinpoint accuracy',
-        quantifiedOutcomeOptional: notes.quantifiedOutcomeOptional || undefined,
+        value_prop_for_pain_point: notes.valuePropForPainPoint || 'forecast seasonal SKU demand with pinpoint accuracy',
+        quantified_outcome_optional: notes.quantifiedOutcomeOptional || undefined,
         specific_context_detail: notes.specificContextDetail || `operations across ${lead.company.sizeRange} employees`,
         one_line_relevance_hypothesis: notes.oneLineRelevanceHypothesis || 'data-driven allocation can prevent costly inventory imbalances',
         sender_name: req.user?.name || 'Sanskar Sinha',
@@ -146,7 +146,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // POST /api/leads/:id/send - Send cold outreach email
   router.post('/:id/send', async (req: Request, res: Response, next) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const lead = await LeadService.getLeadById(prisma, id);
 
       if (!lead) {
@@ -184,10 +184,10 @@ export function createLeadRouter(prisma: PrismaClient): Router {
         observed_signal_sentence: notes.observedSignalSentence || `your brand's current seasonal strategy`,
         company_segment: notes.companySegment || 'apparel',
         pain_point_category: notes.painPointCategory || 'overstock or heavy markdowns',
-        valuePropForPainPoint: notes.valuePropForPainPoint || 'forecast seasonal SKU demand',
-        quantifiedOutcomeOptional: notes.quantifiedOutcomeOptional,
+        value_prop_for_pain_point: notes.valuePropForPainPoint || 'forecast seasonal SKU demand',
+        quantified_outcome_optional: notes.quantifiedOutcomeOptional,
         specific_context_detail: notes.specificContextDetail || 'current market footprint',
-        oneLineRelevanceHypothesis: notes.oneLineRelevanceHypothesis || 'StyleSense demand forecasting protects gross margins',
+        one_line_relevance_hypothesis: notes.oneLineRelevanceHypothesis || 'StyleSense demand forecasting protects gross margins',
         sender_name: req.user?.name || 'Sanskar Sinha',
         proposed_time_window: notes.proposedTimeWindow,
         optional_soft_proof_point: notes.optionalSoftProofPoint
@@ -245,7 +245,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
   // POST /api/leads/:id/recompute-score - Recomputes score from event history
   router.post('/:id/recompute-score', async (req: Request, res: Response, next) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const result = await ScoringService.recomputeAndSaveScore(
         prisma,
         id,

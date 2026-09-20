@@ -14,7 +14,7 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
 
   // GET /api/tracking/pixel/:token.png - Public Tracking Pixel
   router.get('/pixel/:token.png', async (req: Request, res: Response) => {
-    const { token } = req.params;
+    const token = req.params.token as string;
 
     // Immediately return the 1x1 transparent GIF with aggressive no-cache headers
     res.writeHead(200, {
@@ -80,7 +80,7 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
 
   // GET /api/tracking/unsubscribe/:token - Working Unsubscribe Link
   router.get('/unsubscribe/:token', async (req: Request, res: Response) => {
-    const { token } = req.params;
+    const token = req.params.token as string;
 
     try {
       const lead = await prisma.lead.findUnique({
@@ -166,7 +166,7 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
   // POST /api/tracking/simulate-open/:leadId - Helper for UI demoing
   router.post('/simulate-open/:leadId', async (req: Request, res: Response, next) => {
     try {
-      const { leadId } = req.params;
+      const leadId = req.params.leadId as string;
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
 
       if (!lead) {

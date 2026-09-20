@@ -5,6 +5,7 @@ import { ENV } from '../config/env.js';
 export interface AuthUser {
   id: string;
   email: string;
+  name?: string;
   role: string;
 }
 
@@ -18,7 +19,7 @@ declare global {
 
 export function generateToken(user: AuthUser): string {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, name: user.name, role: user.role },
     ENV.JWT_SECRET,
     { expiresIn: '7d' }
   );
