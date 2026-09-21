@@ -19,6 +19,12 @@ export function createCampaignRouter(prisma: PrismaClient): Router {
     status: z.nativeEnum(CampaignStatus).optional().default(CampaignStatus.ACTIVE)
   });
 
+  const campaignIdParamSchema = z.object({
+    id: z.string().uuid('Campaign ID must be a valid UUID format')
+  });
+
+  const updateCampaignSchema = createCampaignSchema.partial();
+
   // GET /api/campaigns
   router.get('/', async (req: Request, res: Response, next) => {
     try {
@@ -31,6 +37,35 @@ export function createCampaignRouter(prisma: PrismaClient): Router {
       });
 
       res.json({ success: true, data: campaigns });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/campaigns/:id
+  router.get('/:id', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = campaignIdParamSchema.parse(req.params);
+      const campaign = await prisma.campaign.findUnique({
+        where: { id },
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+          _count: { select: { events: true } }
+        }
+      });
+
+      if (!campaign) {
+        res.status(404).json({
+          error: {
+            code: 'CAMPAIGN_NOT_FOUND',
+            message: `Campaign with ID ${id} was not found.`,
+            statusCode: 404
+          }
+        });
+        return;
+      }
+
+      res.json({ success: true, data: campaign });
     } catch (err) {
       next(err);
     }
@@ -51,6 +86,58 @@ export function createCampaignRouter(prisma: PrismaClient): Router {
       });
 
       res.status(201).json({ success: true, data: campaign });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // PATCH /api/campaigns/:id
+  router.patch('/:id', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = campaignIdParamSchema.parse(req.params);
+      const data = updateCampaignSchema.parse(req.body);
+
+      const existing = await prisma.campaign.findUnique({ where: { id } });
+      if (!existing) {
+        res.status(404).json({
+          error: {
+            code: 'CAMPAIGN_NOT_FOUND',
+            message: `Campaign with ID ${id} was not found.`,
+            statusCode: 404
+          }
+        });
+        return;
+      }
+
+      const updated = await prisma.campaign.update({
+        where: { id },
+        data
+      });
+
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // DELETE /api/campaigns/:id
+  router.delete('/:id', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = campaignIdParamSchema.parse(req.params);
+      const existing = await prisma.campaign.findUnique({ where: { id } });
+      if (!existing) {
+        res.status(404).json({
+          error: {
+            code: 'CAMPAIGN_NOT_FOUND',
+            message: `Campaign with ID ${id} was not found.`,
+            statusCode: 404
+          }
+        });
+        return;
+      }
+
+      await prisma.campaign.delete({ where: { id } });
+      res.json({ success: true, message: `Campaign ${id} successfully deleted.` });
     } catch (err) {
       next(err);
     }

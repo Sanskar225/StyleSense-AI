@@ -28,7 +28,7 @@ export function createLeadRouter(prisma: PrismaClient): Router {
     status: z.nativeEnum(LeadStatus).optional(),
     tier: z.nativeEnum(ScoreTier).optional(),
     search: z.string().max(100, 'Search query cannot exceed 100 characters').optional(),
-    sortBy: z.enum(['score', 'createdAt', 'name']).optional(),
+    sortBy: z.enum(['score', 'createdAt', 'name', 'company', 'status']).optional(),
     sortOrder: z.enum(['asc', 'desc']).optional()
   });
 
