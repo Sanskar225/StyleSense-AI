@@ -1,4 +1,4 @@
-import { PrismaClient, LeadStatus, ScoreTier } from '@prisma/client';
+import { PrismaClient, Prisma, LeadStatus, ScoreTier } from '@prisma/client';
 import { ScoringService } from './scoring.service.js';
 
 export interface LeadFilterOptions {
@@ -20,7 +20,7 @@ export class LeadService {
     const limit = Math.min(100, Math.max(1, options.limit || 10));
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.LeadWhereInput = {};
 
     if (options.status) {
       where.status = options.status;
@@ -44,7 +44,7 @@ export class LeadService {
     }
 
     // Determine sorting
-    let orderBy: any = [];
+    let orderBy: Prisma.LeadOrderByWithRelationInput[] = [];
     if (options.sortBy === 'score' || !options.sortBy) {
       orderBy = [
         { score: { currentScore: options.sortOrder || 'desc' } },

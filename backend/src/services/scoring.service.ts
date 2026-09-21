@@ -12,19 +12,24 @@
 import { SCORING_CONFIG } from '../config/scoring.config.js';
 import { PrismaClient, Prisma, EventType, ScoreTier, LeadStatus } from '@prisma/client';
 
+export interface FitFactors {
+  titleMatch: { points: number; title: string };
+  companySizeMatch: { points: number; sizeRange: string };
+  industryMatch: { points: number; industry: string };
+  regionMatch: { points: number; region: string };
+}
+
+export interface EngagementFactors {
+  eventsBreakdown: { eventType: string; count: number; points: number }[];
+  replyImpact: { intent?: string; points: number };
+}
+
 export interface ScoreBreakdown {
   fitScore: number;
   engagementScore: number;
   totalScore: number;
   tier: ScoreTier;
-  factors: {
-    titleMatch: { points: number; title: string };
-    companySizeMatch: { points: number; sizeRange: string };
-    industryMatch: { points: number; industry: string };
-    regionMatch: { points: number; region: string };
-    eventsBreakdown: { eventType: string; count: number; points: number }[];
-    replyImpact: { intent?: string; points: number };
-  };
+  factors: FitFactors & EngagementFactors;
 }
 
 export class ScoringService {
@@ -38,7 +43,7 @@ export class ScoringService {
       sizeRange: string;
       region: string;
     };
-  }): { score: number; factors: any } {
+  }): { score: number; factors: FitFactors } {
     const config = SCORING_CONFIG.fit;
     let titlePoints = config.titleWeights.defaultWeight;
     const normalizedTitle = lead.jobTitle.toLowerCase();
@@ -94,7 +99,7 @@ export class ScoringService {
    */
   public static calculateEngagementScore(events: { eventType: EventType; payload?: any }[]): {
     score: number;
-    factors: any;
+    factors: EngagementFactors;
     isUnsubscribed: boolean;
   } {
     const config = SCORING_CONFIG.engagement;
