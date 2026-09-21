@@ -14,9 +14,10 @@ Built for the **Take-Home Assignment — Full Stack + AI Engineer**.
 5. [20% Evaluation Rubric: AI Agent, Tool Use & Grounding (Section 3.4)](#ai-agent-component-tool-use-grounding--classification-section-34)
 6. [15% Evaluation Rubric: Send, Tracking & Compliance](#15-evaluation-rubric-send-tracking--compliance-deep-technical-defense)
 7. [15% Evaluation Rubric: Scope Judgement, Architectural Trade-offs & Code Maintainability](#15-evaluation-rubric-scope-judgement-architectural-trade-offs--code-maintainability)
-8. [Automated Test Suite (57 Tests Total)](#automated-test-suite)
-9. [Sample Emails Deliverable](#sample-emails-deliverable)
-10. [What We Would Build Next (Stretch Goals & Production Blueprints)](#what-we-would-build-next-stretch-goals--production-blueprints)
+8. [20% Evaluation Rubric: Console UI, State Handling & Interactive Demo Suite](#20-evaluation-rubric-console-ui-state-handling--interactive-demo-suite)
+9. [Automated Test Suite (57 Tests Total)](#automated-test-suite)
+10. [Sample Emails Deliverable](#sample-emails-deliverable)
+11. [What We Would Build Next (Stretch Goals & Production Blueprints)](#what-we-would-build-next-stretch-goals--production-blueprints)
 
 ---
 
@@ -588,7 +589,67 @@ backend/src/
 
 ---
 
-## Automated Test Suite
+## 8. 20% Evaluation Rubric: Console UI, State Handling & Interactive Demo Suite
+
+The sales console is engineered as a high-density, real-time single-page application (SPA) built with React 18, Vite, TypeScript, and Tailwind CSS. It is designed to empower B2B account executives to evaluate, act upon, and understand every lead in the pipeline with zero friction.
+
+### 1. Interactive Demo Checklist (Reviewer Evaluation Guide)
+
+An interactive collapsible banner (**"Interactive Reviewer & Demo Guide"**) is embedded directly into the top of the UI, allowing evaluators to verify the complete end-to-end lifecycle in under 60 seconds:
+
+| Step | Milestone | How to Test Live in UI | Expected Behavioral & Mathematical Outcome |
+| :---: | :--- | :--- | :--- |
+| **1** | **AI Lead Discovery** | Click **"Find Leads (ICP Agent)"** &rarr; select ICP &rarr; click **"Run ICP Lead Discovery"** | Executes 2-step tool execution (`web_search` $\rightarrow$ `fetch_web_content`). Scrapes 5 grounded apparel leads into PostgreSQL with verified source citations. |
+| **2** | **Appendix A Outreach** | Click **"Send Email"** on any Discovered lead | Opens preview modal; verifies Appendix A token grounding in real-time; injects physical postal address & RFC 8058 unsubscribe header; advances status to `CONTACTED` (**+5 pts**). |
+| **3** | **1x1 Pixel Open** | Click **"Track Open"** on a Contacted lead | Dispatches GET request for transparent `1x1` GIF with anti-cache headers; logs discrete `OPENED` event with GDPR SHA-256 IP hashing; advances status to `OPENED` (**+15 pts**). |
+| **4** | **Inbound Reply & Intent** | Click **"Reply"** on any lead &rarr; choose sample or custom text &rarr; click **"Classify & Record Reply"** | Executes 5-class intent classifier (`interested`, `needs_info`, `not_now`, `wrong_person`, `unsubscribe`); generates auto-drafted response; advances status to `REPLIED` (**+30 pts**). |
+| **5** | **Compliance & Suppression** | Click any lead &rarr; in Deliverability Center, click **"Simulate Opt-Out 🛑"** &rarr; click **"Test Send"** | Lead status advances to `UNSUBSCRIBED`; lead score resets to `0`; test send is blocked at the database boundary with **HTTP 409 Conflict (`RECIPIENT_SUPPRESSED`)**. |
+| **6** | **Deterministic Replay** | Click **"Recompute"** in header or drawer | Reconstructs score from raw immutable `email_events` store; mathematically proves event/derived-state separation. |
+
+---
+
+### 2. Comprehensive State Handling (Real, Empty, Loading, and Error States)
+
+A critical failure mode in frontend evaluations is failing to handle edge cases, resulting in blank screens, silent network crashes, or layout jumps. StyleSense AI explicitly handles all 4 states:
+
+#### A. Real State (High-Density Sales Grid)
+- Displays full pipeline with **Medal Rankings** (`#1` Gold, `#2` Silver, `#3` Bronze).
+- Visual **Split Progress Bar** displaying ICP Fit score (green) vs Engagement score (indigo) alongside score tier badges (`🔥 HOT`, `⚡ WARM`, `❄️ COLD`).
+- Decision-maker contact details, company demographic data, verified research citation hyperlinks (`↗`), and quick action buttons.
+
+#### B. Loading State (Zero-Jank Skeletons)
+- Replaces raw spinner jumps with **pulsing skeleton loaders** across both the pipeline metrics cards and the 6 table rows, preserving Cumulative Layout Shift (CLS) and providing visual continuity.
+
+#### C. Granular Context-Aware Empty States
+- **Search Query Mismatch**: When a search returns 0 results, displays *"No results found for '<query>'"* with a 1-click **"Clear Search"** button.
+- **Status / Tier Filter Mismatch**: When active filters match 0 leads, displays *"No leads match your active filters"* with a 1-click **"Clear All Filters"** button.
+- **Empty Pipeline**: If the entire database has 0 leads, displays an onboarding call-to-action with a 1-click **"Discover Leads with AI"** button.
+- **Drawer History Empty States**: Displays clean explanatory placeholders if a newly discovered lead has no score history or email events yet.
+
+#### D. Error States & RFC 7807 Exception Mapping
+- **Global API Connection Alert**: If the backend server is unreachable or offline, an alert banner renders at the top of the console with a 1-click **"Retry Connection"** button.
+- **RFC 7807 Semantic Toasts**: API problem responses (such as `HTTP 409 RECIPIENT_SUPPRESSED` or `HTTP 422 VALIDATION_ERROR`) are parsed and rendered as red error alert toasts displaying the server's exact RFC 7807 problem message.
+- **Modal Error Callouts**: Failed actions in modals display inline danger alerts without losing user input.
+
+---
+
+### 3. Filtering, Searching & Status Clarity
+
+- **Pipeline Status Tabs with Live Counters**: Horizontal status strip showing real-time distribution across the pipeline:
+  `All Leads (11)` &bull; `Discovered (5)` &bull; `Contacted (1)` &bull; `Opened (2)` &bull; `Replied (1)` &bull; `Unsubscribed (2)`.
+- **Score Tier Dropdown with Counts**: `🔥 Hot (≥75)`, `⚡ Warm (45-74)`, `❄️ Cold (<45)` with live lead counts.
+- **Multi-Field Instant Search**: Searches across prospect first name, last name, job title, company name, and email address with an instant `×` clear button.
+- **Dynamic Multi-Field Sorting**:
+  - `Score (Highest First)` (default)
+  - `Score (Lowest First)`
+  - `Name (A → Z)`
+  - `Company (A → Z)`
+  - `Most Recently Added`
+- **Active Filter Reset Pill**: A dedicated "Reset Filters" pill appears dynamically whenever any filter, search query, or non-default sort order is applied.
+
+---
+
+## 9. Automated Test Suite
 
 The test suite is written in Vitest and validates scoring logic, API routes, authentication, grounding enforcement, adversarial edge cases, tool schemas, reply classification, and delivery compliance.
 
@@ -618,7 +679,7 @@ npm run eval:replies     # 8 tests: Reply classification benchmark (100% accurac
 
 ---
 
-## Sample Emails Deliverable
+## 10. Sample Emails Deliverable
 
 See [`samples/sample_emails.md`](samples/sample_emails.md) for full text and token research citations for:
 1. **Elena Rostova** (KnitWell Apparel) — Overstock / heavy markdowns $\rightarrow$ AI demand forecasting.
@@ -627,7 +688,7 @@ See [`samples/sample_emails.md`](samples/sample_emails.md) for full text and tok
 
 ---
 
-## What We Would Build Next (Stretch Goals & Roadmap)
+## 11. What We Would Build Next (Stretch Goals & Roadmap)
 
 With more time, we would expand StyleSense AI with the following planned architectural enhancements:
 1. **Real Inbound Ingestion (Webhook / IMAP)**: Replace the simulation box with an inbound webhook handler for SendGrid/Resend inbound parse or an IMAP listener that continuously reads replies from a dedicated Gmail/GSuite inbox.
