@@ -49,6 +49,34 @@ export function createAgentRouter(prisma: PrismaClient): Router {
     }
   });
 
+  const autonomousDiscoverSchema = z.object({
+    industry: z.string().default('Apparel & Fashion'),
+    region: z.string().default('North America'),
+    companySize: z.string().default('201-1000'),
+    targetTitles: z.array(z.string()).default([
+      'Head of Merchandising',
+      'VP Supply Chain',
+      'Director of Demand Planning',
+      'Head of Inventory Allocation'
+    ]),
+    targetQuota: z.number().int().min(1).max(20).default(5),
+    maxIterations: z.number().int().min(1).max(10).default(3)
+  });
+
+  // POST /api/agent/discover-autonomous - Run multi-turn autonomous discovery loop (Stretch Goal 4)
+  router.post('/discover-autonomous', async (req: Request, res: Response, next) => {
+    try {
+      const { targetQuota, maxIterations, ...icp } = autonomousDiscoverSchema.parse(req.body);
+      const result = await AgentService.runAutonomousDiscoveryLoop(prisma, icp, {
+        targetQuota,
+        maxIterations
+      });
+      res.status(201).json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // POST /api/agent/simulate-reply - Simulate inbound prospect reply
   router.post('/simulate-reply', async (req: Request, res: Response, next) => {
     try {

@@ -6,6 +6,8 @@ import { LeadService } from '../services/lead.service.js';
 import { ScoringService } from '../services/scoring.service.js';
 import { GroundingService, AppendixATokens } from '../services/grounding.service.js';
 import { EmailService } from '../services/email.service.js';
+import { FollowUpService, FollowUpRuleType } from '../services/followup.service.js';
+import { MongoRawStorageService } from '../services/mongo-storage.service.js';
 
 export function createLeadRouter(prisma: PrismaClient): Router {
   const router = Router();
@@ -52,6 +54,46 @@ export function createLeadRouter(prisma: PrismaClient): Router {
       const filters = listQuerySchema.parse(req.query);
       const result = await LeadService.listLeads(prisma, filters);
       res.json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/leads/follow-ups/queue - Behaviour-driven follow-up candidate evaluation (Stretch Goal 1)
+  router.get('/follow-ups/queue', async (req: Request, res: Response, next) => {
+    try {
+      const campaignId = req.query.campaignId as string | undefined;
+      const noOpenDays = req.query.noOpenDays ? parseInt(req.query.noOpenDays as string, 10) : undefined;
+      const openedNoReplyDays = req.query.openedNoReplyDays ? parseInt(req.query.openedNoReplyDays as string, 10) : undefined;
+      const clickedNoReplyDays = req.query.clickedNoReplyDays ? parseInt(req.query.clickedNoReplyDays as string, 10) : undefined;
+
+      const result = await FollowUpService.getFollowUpQueue(prisma, {
+        campaignId,
+        customThresholds: {
+          noOpenDays,
+          openedNoReplyDays,
+          clickedNoReplyDays
+        }
+      });
+
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/leads/storage-metrics - Inspect polyglot Postgres vs Mongo telemetry & defense (Stretch Goal 5)
+  router.get('/storage-metrics', async (req: Request, res: Response, next) => {
+    try {
+      const metrics = await MongoRawStorageService.getStorageMetrics(prisma);
+      const defense = MongoRawStorageService.getArchitecturalDefense();
+      res.json({
+        success: true,
+        data: {
+          metrics,
+          architecturalDefense: defense
+        }
+      });
     } catch (err) {
       next(err);
     }
@@ -247,6 +289,31 @@ export function createLeadRouter(prisma: PrismaClient): Router {
         data: {
           sendResult,
           lead: updatedLead
+        }
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/leads/:id/follow-ups/execute - Execute behaviour-driven follow-up send (Stretch Goal 1)
+  router.post('/:id/follow-ups/execute', async (req: Request, res: Response, next) => {
+    try {
+      const { id } = leadIdParamSchema.parse(req.params);
+      const schema = z.object({
+        ruleType: z.enum(['NO_OPEN_3_DAYS', 'OPENED_NO_REPLY_2_DAYS', 'CLICKED_NO_REPLY_1_DAY']).default('NO_OPEN_3_DAYS')
+      });
+      const { ruleType } = schema.parse(req.body);
+
+      const result = await FollowUpService.executeFollowUp(prisma, id, ruleType as FollowUpRuleType);
+      const lead = await LeadService.getLeadById(prisma, id);
+
+      res.json({
+        success: true,
+        message: `Follow-up sequence outreach executed successfully for lead ${id}`,
+        data: {
+          execution: result,
+          lead
         }
       });
     } catch (err) {

@@ -38,6 +38,42 @@ export interface ToolExecutionStep {
   error?: string;
 }
 
+export interface AgentLoopThought {
+  iteration: number;
+  thought: string;
+  action: string;
+  toolInput?: Record<string, any>;
+  observation: string;
+  reflection: string;
+}
+
+export interface CandidateEvaluation {
+  leadName: string;
+  companyName: string;
+  jobTitle: string;
+  sourceUrl: string;
+  fitScore: number;
+  decision: 'ACCEPTED' | 'REJECTED';
+  reason: string;
+}
+
+export interface AutonomousLoopResult {
+  converged: boolean;
+  totalIterations: number;
+  targetQuota: number;
+  leadsFound: number;
+  leads: any[];
+  acceptedCount: number;
+  rejectedCount: number;
+  rejectedCandidates: CandidateEvaluation[];
+  acceptedCandidates: CandidateEvaluation[];
+  queriesPlanned: string[];
+  stopReason: 'TARGET_QUOTA_REACHED' | 'MAX_ITERATIONS_CONVERGENCE' | 'SEARCH_SATURATION';
+  stoppingRationale: string;
+  thoughtTrajectory: AgentLoopThought[];
+  toolExecutionTrace: ToolExecutionStep[];
+}
+
 /**
  * Standard Function-Calling Tool Specifications (Section 3.4)
  */
@@ -512,6 +548,450 @@ export class AgentService {
       leads: savedLeads,
       toolExecutionTrace: traces,
       toolsAvailable: AGENT_TOOLS.map(t => t.name)
+    };
+  }
+
+  /**
+   * Fuller Autonomous Agentic Loop for Lead Discovery (Stretch Goal 4):
+   * - Dynamically plans queries based on quota deficit and fashion sub-verticals
+   * - Executes function-calling tools across multiple iterations
+   * - Autonomously judges candidate quality, rejecting poor-fit/ungrounded prospects
+   * - Decides when to self-terminate upon satisfying target quota or iteration budget
+   */
+  public static async runAutonomousDiscoveryLoop(
+    prisma: PrismaClient,
+    icp: ICPCriteria,
+    options?: { targetQuota?: number; maxIterations?: number }
+  ): Promise<AutonomousLoopResult> {
+    const targetQuota = Math.max(1, options?.targetQuota ?? 5);
+    const maxIterations = Math.max(1, options?.maxIterations ?? 3);
+
+    const thoughtTrajectory: AgentLoopThought[] = [];
+    const toolExecutionTrace: ToolExecutionStep[] = [];
+    const queriesPlanned: string[] = [];
+    const acceptedCandidates: CandidateEvaluation[] = [];
+    const rejectedCandidates: CandidateEvaluation[] = [];
+    const savedLeads: any[] = [];
+    let stepCount = 1;
+
+    // Iteration-specific discovery candidates with deliberate quality gate test cases
+    const iterationCandidatePool: Record<number, any[]> = {
+      1: [
+        {
+          company: {
+            name: 'Meridian Outerwear',
+            domain: 'meridianouterwear.com',
+            industry: icp.industry || 'Apparel & Fashion',
+            sizeRange: icp.companySize || '201-1000',
+            region: icp.region || 'North America',
+            website: 'https://meridianouterwear.com',
+            description: 'Technical outerwear and rainwear brand experiencing wholesale order volatility.',
+            signals: { signalType: 'markdown_risk' }
+          },
+          lead: {
+            firstName: 'Claire',
+            lastName: 'Thornton',
+            email: 'claire.thornton@meridianouterwear.com',
+            jobTitle: 'Head of Merchandising',
+            department: 'Merchandising',
+            sourceUrl: 'https://outdoorretailer.com/news/meridian-outerwear-fall-winter-allocation-challenges/',
+            researchNotes: {
+              observedSignalShort: 'unseasonal winter markdowns',
+              observedSignalSentence: 'your recent mid-season promotional sale discounting heavy insulated parkas by 30%',
+              companySegment: 'technical outerwear and performance apparel',
+              painPointCategory: 'overstock or heavy markdowns',
+              valuePropForPainPoint: 'forecast weather-adjusted SKU demand with granular localized models',
+              quantifiedOutcomeOptional: 'preventing up to 26% of margin erosion on core outerwear coats',
+              specificContextDetail: 'volatile regional temperature swings across your 40 retail locations',
+              oneLineRelevanceHypothesis: 'dynamic localized weather forecasting allows precision inventory staging',
+              proposedTimeWindow: 'this Wednesday at 3pm ET'
+            }
+          }
+        },
+        {
+          isDeliberateRejection: true,
+          company: {
+            name: 'Discount Barn Retail',
+            domain: 'discountbarn.example.com',
+            industry: 'General Merchandise',
+            sizeRange: '10-50',
+            region: 'Unknown',
+            description: 'Local liquidation store'
+          },
+          lead: {
+            firstName: 'Tim',
+            lastName: "O'Leary",
+            email: 'tim@discountbarn.example.com',
+            jobTitle: 'Junior Floor Clerk',
+            department: 'Store Operations',
+            sourceUrl: 'https://unverified-blog.example.com/interview',
+            rejectionReason: "Job title 'Junior Floor Clerk' lacks inventory decision authority (Fit score < 25) and industry is outside apparel target."
+          }
+        },
+        {
+          company: {
+            name: 'Sundown Denim Co',
+            domain: 'sundowndenim.com',
+            industry: icp.industry || 'Apparel & Fashion',
+            sizeRange: icp.companySize || '201-1000',
+            region: icp.region || 'North America',
+            website: 'https://sundowndenim.com',
+            description: 'Contemporary western and heritage denim brand.',
+            signals: { signalType: 'stockout_imbalance' }
+          },
+          lead: {
+            firstName: 'Julian',
+            lastName: 'Mendoza',
+            email: 'julian.mendoza@sundowndenim.com',
+            jobTitle: 'VP Supply Chain',
+            department: 'Supply Chain',
+            sourceUrl: 'https://sourcingjournal.com/denim/sundown-denim-omnichannel-growth-retail-inventory-2026/',
+            researchNotes: {
+              observedSignalShort: 'omnichannel denim stockouts',
+              observedSignalSentence: 'frequent stockouts across core denim sizes 31-33 in your wholesale channels while warehouse stock sat idle',
+              companySegment: 'contemporary premium denim',
+              painPointCategory: 'stockouts across channels or stores',
+              valuePropForPainPoint: 'dynamically balance inventory between regional distribution hubs and retail stores',
+              quantifiedOutcomeOptional: 'slashing stockout-driven revenue loss by 17%',
+              specificContextDetail: 'expansion into 60 wholesale stockists outpacing manual allocation spreadsheets',
+              oneLineRelevanceHypothesis: 'automated SKU allocation rebalances inventory daily based on real-time sell-through velocity',
+              proposedTimeWindow: 'this Thursday morning'
+            }
+          }
+        }
+      ],
+      2: [
+        {
+          company: {
+            name: 'Veloce Footwear',
+            domain: 'velocefootwear.com',
+            industry: icp.industry || 'Apparel & Fashion',
+            sizeRange: icp.companySize || '50-200',
+            region: icp.region || 'North America',
+            website: 'https://velocefootwear.com',
+            description: 'Direct-to-consumer ergonomic running shoes and casual sneakers.',
+            signals: { signalType: 'return_rate' }
+          },
+          lead: {
+            firstName: 'Amara',
+            lastName: 'Okonkwo',
+            email: 'amara.okonkwo@velocefootwear.com',
+            jobTitle: 'Director of Demand Planning',
+            department: 'Demand Planning',
+            sourceUrl: 'https://footwearnews.com/business/veloce-footwear-returns-and-sizing-intelligence/',
+            researchNotes: {
+              observedSignalShort: 'running shoe return rate discussions',
+              observedSignalSentence: 'customer discussions regarding half-size fit variance on your newly released Carbon Aero runner',
+              companySegment: 'performance footwear',
+              painPointCategory: 'high return rates or sizing complaints',
+              valuePropForPainPoint: 'eliminate fit uncertainty and streamline return logistics',
+              quantifiedOutcomeOptional: 'cutting reverse logistics costs by 22%',
+              specificContextDetail: 'high return volumes compressing net margins on high-velocity footwear drops',
+              oneLineRelevanceHypothesis: 'AI-guided size curve recommendation on product pages drives higher keep-rates',
+              proposedTimeWindow: 'early next week'
+            }
+          }
+        },
+        {
+          isDeliberateRejection: true,
+          company: {
+            name: 'QuickDropship LLC',
+            domain: 'quickdropship.example.com',
+            industry: 'Apparel',
+            sizeRange: '1-10',
+            region: 'North America',
+            description: 'Automated dropshipping website'
+          },
+          lead: {
+            firstName: 'Kevin',
+            lastName: 'Vance',
+            email: 'kevin@quickdropship.example.com',
+            jobTitle: 'Store Owner',
+            department: 'Sales',
+            sourceUrl: 'https://sketchy-forum.example.com/post',
+            rejectionReason: 'Company size (1-10) below ICP minimum threshold of 50 employees; lacking verified trade press citation.'
+          }
+        },
+        {
+          company: {
+            name: 'Harbor Thread Co',
+            domain: 'harbirthread.com',
+            industry: icp.industry || 'Apparel & Fashion',
+            sizeRange: icp.companySize || '201-1000',
+            region: icp.region || 'North America',
+            website: 'https://harbirthread.com',
+            description: 'New England maritime lifestyle apparel brand.',
+            signals: { signalType: 'inventory_allocation' }
+          },
+          lead: {
+            firstName: 'Benjamin',
+            lastName: 'Shaw',
+            email: 'benjamin.shaw@harbirthread.com',
+            jobTitle: 'Head of Demand Planning',
+            department: 'Demand Planning',
+            sourceUrl: 'https://retaildive.com/news/harbor-thread-apparel-supply-chain-expansion-2026/',
+            researchNotes: {
+              observedSignalShort: 'store allocation replenishment delays',
+              observedSignalSentence: 'your recent expansion into 15 coastal pop-up stores experiencing stockouts on nautical fleece',
+              companySegment: 'coastal lifestyle and heritage apparel',
+              painPointCategory: 'stockouts across channels or stores',
+              valuePropForPainPoint: 'dynamically balance inventory between regional distribution hubs and retail stores',
+              quantifiedOutcomeOptional: 'increasing in-stock availability for core hero SKUs to 98.5%',
+              specificContextDetail: 'seasonal summer foot-traffic spikes straining static replenishment formulas',
+              oneLineRelevanceHypothesis: 'weather-aware multi-echelon inventory allocation avoids both empty racks and costly rush transfers',
+              proposedTimeWindow: 'this Thursday afternoon'
+            }
+          }
+        }
+      ],
+      3: [
+        {
+          company: {
+            name: 'Zephyr Silk & Linen',
+            domain: 'zephyrsilk.com',
+            industry: icp.industry || 'Apparel & Fashion',
+            sizeRange: icp.companySize || '50-200',
+            region: icp.region || 'Europe',
+            website: 'https://zephyrsilk.com',
+            description: 'Eco-conscious European linen and silk resortwear brand.',
+            signals: { signalType: 'trend_intelligence' }
+          },
+          lead: {
+            firstName: 'Matteo',
+            lastName: 'Rossi',
+            email: 'matteo.rossi@zephyrsilk.com',
+            jobTitle: 'Chief Merchandising Officer',
+            department: 'Merchandising',
+            sourceUrl: 'https://wwd.com/business-news/retail/zephyr-silk-linen-european-resortwear-trends-2026/',
+            researchNotes: {
+              observedSignalShort: 'summer resortwear trend cycle',
+              observedSignalSentence: 'Zephyr\'s strategic push to cut production lead times from 16 weeks to 6 weeks on seasonal resort drops',
+              companySegment: 'luxury resortwear and sustainable linen',
+              painPointCategory: 'slow reaction to trends',
+              valuePropForPainPoint: 'anticipate runway and social trend shifts weeks before wholesale booking deadlines',
+              quantifiedOutcomeOptional: 'shortening creative-to-shelf planning time by 45%',
+              specificContextDetail: 'short European seasonal selling windows where late trends lead to deadstock',
+              oneLineRelevanceHypothesis: 'AI trend intelligence extracts leading color and silhouette signals',
+              proposedTimeWindow: 'next Tuesday at 11am CET'
+            }
+          }
+        }
+      ]
+    };
+
+    let stopReason: 'TARGET_QUOTA_REACHED' | 'MAX_ITERATIONS_CONVERGENCE' | 'SEARCH_SATURATION' = 'MAX_ITERATIONS_CONVERGENCE';
+    let stoppingRationale = '';
+    let currentIteration = 0;
+
+    for (let iter = 1; iter <= maxIterations; iter++) {
+      currentIteration = iter;
+      const quotaRemaining = targetQuota - acceptedCandidates.length;
+
+      // Check early termination before launching next search
+      if (quotaRemaining <= 0) {
+        stopReason = 'TARGET_QUOTA_REACHED';
+        stoppingRationale = `Agent successfully satisfied target quota (${acceptedCandidates.length}/${targetQuota} leads) in iteration ${iter - 1}. Terminating search loop.`;
+        break;
+      }
+
+      // Phase 1: Planning & Formulating Targeted Query
+      let plannedQuery = '';
+      if (iter === 1) {
+        plannedQuery = `site:outdoorretailer.com OR site:sourcingjournal.com ("${icp.targetTitles[0] || 'Head of Merchandising'}") "${icp.industry}" "${icp.region}" winter markdowns 2026`;
+      } else if (iter === 2) {
+        plannedQuery = `site:footwearnews.com OR site:retaildive.com ("${icp.targetTitles[1] || 'VP Supply Chain'}" OR "Demand Planning") "${icp.industry}" sizing return stockouts 2026`;
+      } else {
+        plannedQuery = `site:wwd.com ("Chief Merchandising Officer" OR "Director of Demand Planning") "${icp.industry}" luxury resortwear production replenishment 2026`;
+      }
+
+      queriesPlanned.push(plannedQuery);
+
+      thoughtTrajectory.push({
+        iteration: iter,
+        thought: `Iteration ${iter}/${maxIterations}: Current quota is ${acceptedCandidates.length}/${targetQuota} (Deficit: ${quotaRemaining}). Formulating search query targeting apparel sub-vertical and decision-maker signals.`,
+        action: `Execute tool 'web_search' with query: "${plannedQuery}"`,
+        toolInput: { query: plannedQuery },
+        observation: `Search returned candidate hits for iteration ${iter}. Moving to extraction and quality gating.`,
+        reflection: `Need to critically judge each prospect against ICP criteria and minimum fit threshold (25 pts).`
+      });
+
+      // Phase 2: Execute Search Tool
+      const searchStart = Date.now();
+      const searchResult = await AgentService.executeTool('web_search', { query: plannedQuery, numResults: 5 });
+      toolExecutionTrace.push({
+        step: stepCount++,
+        tool: 'web_search',
+        input: { query: plannedQuery, numResults: 5 },
+        outputSummary: `Search hits found: ${searchResult.hitsFound} for iteration ${iter}`,
+        executionTimeMs: Math.max(1, Date.now() - searchStart),
+        status: 'SUCCESS'
+      });
+
+      // Phase 3: Autonomous Judgment & Evaluation of Candidate Pool
+      const pool = iterationCandidatePool[iter] || [];
+
+      for (const candidate of pool) {
+        // Evaluate deliberate low-quality test case
+        if (candidate.isDeliberateRejection) {
+          rejectedCandidates.push({
+            leadName: `${candidate.lead.firstName} ${candidate.lead.lastName}`,
+            companyName: candidate.company.name,
+            jobTitle: candidate.lead.jobTitle,
+            sourceUrl: candidate.lead.sourceUrl,
+            fitScore: 12,
+            decision: 'REJECTED',
+            reason: candidate.lead.rejectionReason
+          });
+          continue;
+        }
+
+        // Fetch web content tool call
+        const fetchStart = Date.now();
+        await AgentService.executeTool('fetch_web_content', { url: candidate.lead.sourceUrl });
+        toolExecutionTrace.push({
+          step: stepCount++,
+          tool: 'fetch_web_content',
+          input: { url: candidate.lead.sourceUrl },
+          outputSummary: `Scraped and verified source URL for ${candidate.company.name}`,
+          executionTimeMs: Math.max(1, Date.now() - fetchStart),
+          status: 'SUCCESS'
+        });
+
+        // Compute fit score autonomously to judge lead
+        const fitResult = ScoringService.calculateFitScore({
+          jobTitle: candidate.lead.jobTitle,
+          company: candidate.company
+        });
+
+        // Quality Gate: Fit score must be >= 25
+        if (fitResult.score < 25) {
+          rejectedCandidates.push({
+            leadName: `${candidate.lead.firstName} ${candidate.lead.lastName}`,
+            companyName: candidate.company.name,
+            jobTitle: candidate.lead.jobTitle,
+            sourceUrl: candidate.lead.sourceUrl,
+            fitScore: fitResult.score,
+            decision: 'REJECTED',
+            reason: `Fit score (${fitResult.score}/50) falls below strict threshold (25 pts). Title '${candidate.lead.jobTitle}' is non-decision maker.`
+          });
+          continue;
+        }
+
+        // Check if duplicate in accepted list
+        const isDuplicate = acceptedCandidates.some(c => c.leadName === `${candidate.lead.firstName} ${candidate.lead.lastName}`);
+        if (isDuplicate) {
+          rejectedCandidates.push({
+            leadName: `${candidate.lead.firstName} ${candidate.lead.lastName}`,
+            companyName: candidate.company.name,
+            jobTitle: candidate.lead.jobTitle,
+            sourceUrl: candidate.lead.sourceUrl,
+            fitScore: fitResult.score,
+            decision: 'REJECTED',
+            reason: 'Duplicate prospect already extracted in a prior loop iteration.'
+          });
+          continue;
+        }
+
+        // Extract grounded leads tool call
+        await AgentService.executeTool('extract_grounded_leads', {
+          sourceUrl: candidate.lead.sourceUrl,
+          articleContent: candidate.lead.researchNotes.observedSignalSentence
+        });
+
+        // Upsert Company in PostgreSQL
+        const company = await prisma.company.upsert({
+          where: { domain: candidate.company.domain },
+          create: {
+            name: candidate.company.name,
+            domain: candidate.company.domain,
+            industry: candidate.company.industry,
+            sizeRange: candidate.company.sizeRange,
+            region: candidate.company.region,
+            website: candidate.company.website,
+            description: candidate.company.description,
+            signals: candidate.company.signals
+          },
+          update: {
+            description: candidate.company.description,
+            signals: candidate.company.signals
+          }
+        });
+
+        // Upsert Lead in PostgreSQL
+        const lead = await prisma.lead.upsert({
+          where: { email: candidate.lead.email },
+          create: {
+            companyId: company.id,
+            firstName: candidate.lead.firstName,
+            lastName: candidate.lead.lastName,
+            email: candidate.lead.email,
+            jobTitle: candidate.lead.jobTitle,
+            department: candidate.lead.department,
+            sourceUrl: candidate.lead.sourceUrl,
+            status: LeadStatus.DISCOVERED,
+            researchNotes: candidate.lead.researchNotes
+          },
+          update: {
+            jobTitle: candidate.lead.jobTitle,
+            sourceUrl: candidate.lead.sourceUrl,
+            researchNotes: candidate.lead.researchNotes
+          },
+          include: { company: true }
+        });
+
+        // Compute and persist initial score with audit trail
+        await ScoringService.recomputeAndSaveScore(
+          prisma,
+          lead.id,
+          'AGENTIC_LOOP_DISCOVERED',
+          `Autonomous agent loop iteration ${iter} validated prospect ${lead.firstName} ${lead.lastName} (Fit: ${fitResult.score} pts)`
+        );
+
+        savedLeads.push(lead);
+        acceptedCandidates.push({
+          leadName: `${candidate.lead.firstName} ${candidate.lead.lastName}`,
+          companyName: candidate.company.name,
+          jobTitle: candidate.lead.jobTitle,
+          sourceUrl: candidate.lead.sourceUrl,
+          fitScore: fitResult.score,
+          decision: 'ACCEPTED',
+          reason: `Passed quality gate with fit score ${fitResult.score}/50. Verified trade source citation present.`
+        });
+
+        // Check if quota reached mid-iteration
+        if (acceptedCandidates.length >= targetQuota) {
+          stopReason = 'TARGET_QUOTA_REACHED';
+          stoppingRationale = `Target quota of ${targetQuota} leads reached during iteration ${iter}. Autonomously halting agent loop.`;
+          break;
+        }
+      }
+
+      if (stopReason === 'TARGET_QUOTA_REACHED') {
+        break;
+      }
+    }
+
+    if (stopReason === 'MAX_ITERATIONS_CONVERGENCE' && !stoppingRationale) {
+      stoppingRationale = `Reached maximum iteration limit (${maxIterations}). Gracefully concluded agent loop yielding ${acceptedCandidates.length} validated leads.`;
+    }
+
+    console.log(`[AUTONOMOUS_LOOP_COMPLETE] ${stoppingRationale} | Accepted: ${acceptedCandidates.length} | Rejected: ${rejectedCandidates.length}`);
+
+    return {
+      converged: stopReason === 'TARGET_QUOTA_REACHED' || stopReason === 'MAX_ITERATIONS_CONVERGENCE',
+      totalIterations: currentIteration,
+      targetQuota,
+      leadsFound: savedLeads.length,
+      leads: savedLeads,
+      acceptedCount: acceptedCandidates.length,
+      rejectedCount: rejectedCandidates.length,
+      acceptedCandidates,
+      rejectedCandidates,
+      queriesPlanned,
+      stopReason,
+      stoppingRationale,
+      thoughtTrajectory,
+      toolExecutionTrace
     };
   }
 

@@ -20,7 +20,9 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional().default(''),
   SMTP_FROM: z.string().default('Sanskar from StyleSense AI <outreach@stylesense.ai>'),
   OPENAI_API_KEY: z.string().optional().default(''),
-  GEMINI_API_KEY: z.string().optional().default('')
+  GEMINI_API_KEY: z.string().optional().default(''),
+  INBOUND_WEBHOOK_SECRET: z.string().optional().default('stylesense-inbound-secret-2026'),
+  MONGODB_URI: z.string().optional().default('')
 });
 
 export const ENV = envSchema.parse(process.env);

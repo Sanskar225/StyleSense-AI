@@ -7,6 +7,7 @@ import { createLeadRouter } from './routes/lead.routes.js';
 import { createCampaignRouter } from './routes/campaign.routes.js';
 import { createTrackingRouter } from './routes/tracking.routes.js';
 import { createAgentRouter } from './routes/agent.routes.js';
+import { createQueueRouter } from './routes/queue.routes.js';
 
 export function createServer(prisma: PrismaClient) {
   const app = express();
@@ -37,6 +38,7 @@ export function createServer(prisma: PrismaClient) {
   app.use('/api/leads', createLeadRouter(prisma));
   app.use('/api/campaigns', createCampaignRouter(prisma));
   app.use('/api/agent', createAgentRouter(prisma));
+  app.use('/api/queue', createQueueRouter());
 
   // 404 Handler
   app.use((req, res) => {

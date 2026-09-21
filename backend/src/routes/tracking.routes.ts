@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient, EventType, LeadStatus, SuppressionReason } from '@prisma/client';
 import { z } from 'zod';
 import { ScoringService } from '../services/scoring.service.js';
+import { ClassifierService } from '../services/classifier.service.js';
 import { authenticateJWT } from '../middleware/auth.middleware.js';
+import { ENV } from '../config/env.js';
 import crypto from 'crypto';
 
 // 1x1 Transparent GIF buffer (43 bytes standard tracking pixel)
@@ -136,6 +138,210 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
       console.log(`[TRACKING_PIXEL_HIT] Recorded OPENED event for lead ${lead.email} (${lead.firstName})`);
     } catch (err) {
       console.error('[TRACKING_PIXEL_ERROR]', err);
+    }
+  });
+
+  // GET /api/tracking/click/:token - Click Tracking & Redirect (Stretch Goal 1)
+  router.get('/click/:token', async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+
+    // Validate target URL to prevent open redirect vulnerability
+    let targetUrl = (req.query.url as string) || 'https://stylesense.ai';
+    try {
+      const parsed = new URL(targetUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        targetUrl = 'https://stylesense.ai';
+      }
+    } catch {
+      targetUrl = 'https://stylesense.ai';
+    }
+
+    const tokenParsed = z.string().uuid().safeParse(token);
+    if (!tokenParsed.success) {
+      res.redirect(302, targetUrl);
+      return;
+    }
+
+    try {
+      const lead = await prisma.lead.findUnique({
+        where: { trackingToken: token },
+        include: { score: true }
+      });
+
+      if (!lead) {
+        console.warn(`[CLICK_TRACKING_MISS] Unknown tracking token: ${token}`);
+        res.redirect(302, targetUrl);
+        return;
+      }
+
+      // Extract client IP and user-agent
+      const forwarded = (req.headers['x-forwarded-for'] as string) || '';
+      const clientIp = (forwarded.split(',')[0] || req.socket.remoteAddress || '127.0.0.1').trim();
+      const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').substring(0, 12);
+      const userAgent = req.headers['user-agent'] || 'Unknown';
+
+      // Record discrete CLICKED event and update score (+10 pts per config)
+      await prisma.$transaction(async (tx) => {
+        await tx.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: EventType.CLICKED,
+            messageId: `click_${Date.now()}_${token.substring(0, 8)}`,
+            payload: {
+              targetUrl,
+              userAgent,
+              ipHash,
+              clickedAt: new Date().toISOString()
+            }
+          }
+        });
+
+        if (lead.status === LeadStatus.CONTACTED || lead.status === LeadStatus.DISCOVERED) {
+          await tx.lead.update({
+            where: { id: lead.id },
+            data: { status: LeadStatus.OPENED }
+          });
+        }
+
+        await ScoringService.recomputeAndSaveScore(
+          tx,
+          lead.id,
+          'EMAIL_CLICKED',
+          'Prospect clicked link in outreach email (+10 pts)'
+        );
+      });
+
+      console.log(`[CLICK_TRACKING_HIT] Recorded CLICKED event for lead ${lead.email} -> ${targetUrl}`);
+      res.redirect(302, targetUrl);
+    } catch (err) {
+      console.error('[CLICK_TRACKING_ERROR]', err);
+      res.redirect(302, targetUrl);
+    }
+  });
+
+  // POST /api/tracking/webhook/inbound - Real Inbound Webhook Ingestion (Stretch Goal 2)
+  router.post('/webhook/inbound', async (req: Request, res: Response) => {
+    try {
+      // Optional webhook secret verification
+      const secret = (req.headers['x-webhook-secret'] as string) || (req.query.secret as string);
+      if (ENV.INBOUND_WEBHOOK_SECRET && secret && secret !== ENV.INBOUND_WEBHOOK_SECRET) {
+        res.status(401).json({ error: { code: 'UNAUTHORIZED_WEBHOOK', message: 'Invalid webhook secret' } });
+        return;
+      }
+
+      // Extract sender email (supports SendGrid, Resend, and standard SMTP payloads)
+      let rawFrom = (req.body.from || req.body.data?.from || req.body.sender || '') as string;
+      if (Array.isArray(rawFrom)) rawFrom = rawFrom[0] || '';
+      const emailMatch = rawFrom.match(/<([^>]+)>/) || rawFrom.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+      const senderEmail = (emailMatch ? emailMatch[1] : rawFrom).trim().toLowerCase();
+
+      const replyText = String(
+        req.body.text || req.body.body || req.body.data?.text || req.body.html || req.body.data?.html || ''
+      );
+      const subject = String(req.body.subject || req.body.data?.subject || 'Re: StyleSense AI Outreach');
+
+      if (!senderEmail || !senderEmail.includes('@')) {
+        res.status(400).json({ error: { code: 'INVALID_PAYLOAD', message: 'Unable to extract valid sender email from webhook payload' } });
+        return;
+      }
+
+      // Match lead by sender email
+      const lead = await prisma.lead.findUnique({
+        where: { email: senderEmail },
+        include: { company: true, score: true }
+      });
+
+      if (!lead) {
+        res.status(200).json({
+          received: true,
+          matched: false,
+          senderEmail,
+          message: 'Inbound webhook received but sender does not match an existing lead.'
+        });
+        return;
+      }
+
+      // Classify inbound reply
+      const classification = ClassifierService.classifyReply(replyText, {
+        prospectName: lead.firstName,
+        companyName: lead.company.name,
+        originalSubject: subject
+      });
+
+      let scoreResult: any;
+      let newStatus: LeadStatus = LeadStatus.REPLIED;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.emailEvent.create({
+          data: {
+            leadId: lead.id,
+            eventType: EventType.REPLIED,
+            messageId: `inbound_${Date.now()}_${crypto.randomBytes(4).toString('hex')}@prospect.com`,
+            payload: {
+              from: senderEmail,
+              subject,
+              rawText: replyText,
+              intent: classification.intent,
+              confidence: classification.confidence,
+              suggestedAction: classification.suggestedAction,
+              suggestedDraft: classification.suggestedDraft,
+              receivedVia: 'provider_inbound_webhook',
+              receivedAt: new Date().toISOString()
+            }
+          }
+        });
+
+        if (classification.intent === 'unsubscribe') {
+          newStatus = LeadStatus.UNSUBSCRIBED;
+          await tx.suppression.upsert({
+            where: { email: lead.email.toLowerCase() },
+            create: {
+              email: lead.email.toLowerCase(),
+              leadId: lead.id,
+              reason: SuppressionReason.UNSUBSCRIBE,
+              notes: 'Auto-suppressed from inbound provider webhook opt-out classification'
+            },
+            update: {
+              suppressedAt: new Date(),
+              notes: 'Updated suppression timestamp from inbound webhook opt-out'
+            }
+          });
+        }
+
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: { status: newStatus }
+        });
+
+        scoreResult = await ScoringService.recomputeAndSaveScore(
+          tx,
+          lead.id,
+          `INBOUND_WEBHOOK_REPLY_${classification.intent.toUpperCase()}`,
+          `Inbound email reply received via provider webhook (Intent: ${classification.intent})`
+        );
+      });
+
+      console.log(`[INBOUND_WEBHOOK_PROCESSED] Successfully ingested reply from ${lead.email} | Intent: ${classification.intent} | New Score: ${scoreResult.newScore}`);
+
+      res.status(200).json({
+        success: true,
+        received: true,
+        matched: true,
+        leadId: lead.id,
+        email: lead.email,
+        classification: {
+          intent: classification.intent,
+          confidence: classification.confidence,
+          suggestedAction: classification.suggestedAction,
+          suggestedDraft: classification.suggestedDraft
+        },
+        newStatus,
+        newScore: scoreResult.newScore,
+        scoreDelta: scoreResult.delta
+      });
+    } catch (err: any) {
+      console.error('[INBOUND_WEBHOOK_ERROR]', err);
+      res.status(500).json({ error: { code: 'WEBHOOK_PROCESSING_FAILED', message: err.message } });
     }
   });
 
