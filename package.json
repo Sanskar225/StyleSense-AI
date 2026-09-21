@@ -14,6 +14,8 @@
     "test:grounding": "npm --prefix backend run test:grounding",
     "test:audit": "npm --prefix backend run test:audit",
     "test:agent": "npm --prefix backend run test:agent",
+    "test:compliance": "npm --prefix backend run test:compliance",
+    "test:stretch": "npm --prefix backend run test:stretch",
     "test:e2e": "npm --prefix backend run test:e2e",
     "eval:replies": "npm --prefix backend run eval:replies",
     "db:push": "npm --prefix backend run db:push",

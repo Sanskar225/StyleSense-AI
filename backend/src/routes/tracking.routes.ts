@@ -284,7 +284,7 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
               intent: classification.intent,
               confidence: classification.confidence,
               suggestedAction: classification.suggestedAction,
-              suggestedDraft: classification.suggestedDraft,
+              draftedResponse: classification.draftedResponse,
               receivedVia: 'provider_inbound_webhook',
               receivedAt: new Date().toISOString()
             }
@@ -333,7 +333,7 @@ export function createTrackingRouter(prisma: PrismaClient): Router {
           intent: classification.intent,
           confidence: classification.confidence,
           suggestedAction: classification.suggestedAction,
-          suggestedDraft: classification.suggestedDraft
+          draftedResponse: classification.draftedResponse
         },
         newStatus,
         newScore: scoreResult.newScore,

@@ -7,7 +7,7 @@ export interface LeadFilterOptions {
   status?: LeadStatus;
   tier?: ScoreTier;
   search?: string;
-  sortBy?: 'score' | 'createdAt' | 'name';
+  sortBy?: 'score' | 'createdAt' | 'name' | 'company' | 'status';
   sortOrder?: 'asc' | 'desc';
 }
 
@@ -54,6 +54,10 @@ export class LeadService {
       orderBy = [{ createdAt: options.sortOrder || 'desc' }];
     } else if (options.sortBy === 'name') {
       orderBy = [{ lastName: options.sortOrder || 'asc' }];
+    } else if (options.sortBy === 'company') {
+      orderBy = [{ company: { name: options.sortOrder || 'asc' } }];
+    } else if (options.sortBy === 'status') {
+      orderBy = [{ status: options.sortOrder || 'asc' }];
     }
 
     const [totalCount, leads] = await Promise.all([

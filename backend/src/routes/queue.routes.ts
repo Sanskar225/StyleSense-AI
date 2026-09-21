@@ -31,9 +31,10 @@ export function createQueueRouter(): Router {
 
   // GET /api/queue/jobs/:id - Check status and progress of a background job
   router.get('/jobs/:id', (req: Request, res: Response) => {
-    const job = globalJobQueue.getJob(req.params.id);
+    const id = req.params.id as string;
+    const job = globalJobQueue.getJob(id);
     if (!job) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: `Job ${req.params.id} not found` } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: `Job ${id} not found` } });
       return;
     }
     res.json({ success: true, data: job });
