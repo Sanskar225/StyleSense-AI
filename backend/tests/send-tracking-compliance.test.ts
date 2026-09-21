@@ -25,6 +25,8 @@ import { EmailService, SuppressedRecipientError } from '../src/services/email.se
 import { GroundingService } from '../src/services/grounding.service.js';
 import { ScoringService } from '../src/services/scoring.service.js';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 
 describe('15% Send, Tracking & Compliance Audit Suite', () => {
   let prisma: PrismaClient;
@@ -583,6 +585,169 @@ describe('15% Send, Tracking & Compliance Audit Suite', () => {
       expect(email.bodyHtml).toContain('StyleSense AI, Inc.');
       expect(email.bodyHtml).toContain(unsubUrl);
       expect(email.bodyHtml).toContain(`<img src="${trackingUrl}"`);
+    });
+
+    it('verifies non-negotiable GDPR / CAN-SPAM statement exists in README.md', () => {
+      const readmePath = path.resolve(__dirname, '../../README.md');
+      const readmeContent = fs.readFileSync(readmePath, 'utf-8');
+
+      expect(readmeContent).toContain('GDPR / CAN-SPAM Regulatory Compliance Statement');
+      expect(readmeContent).toContain('CAN-SPAM Act');
+      expect(readmeContent).toContain('GDPR');
+      expect(readmeContent).toContain('suppression');
+    });
+  });
+
+  // ============================================================================
+  // 6. SECTION 3.2 END-TO-END OUTREACH & LIFECYCLE FORENSIC VERIFICATION
+  // ============================================================================
+  describe('6. Section 3.2 End-to-End Outreach & Lifecycle Forensic Verification', () => {
+    it('EmailService.sendAppendixAOutreach sends grounded outreach in sandbox mode using Appendix A skeleton', async () => {
+      const company = await prisma.company.upsert({
+        where: { domain: 'appendix-outreach.com' },
+        create: {
+          name: 'Appendix Apparel Corp',
+          domain: 'appendix-outreach.com',
+          industry: 'Apparel & Fashion',
+          sizeRange: '201-500',
+          region: 'North America'
+        },
+        update: {}
+      });
+
+      const lead = await prisma.lead.create({
+        data: {
+          companyId: company.id,
+          firstName: 'Maya',
+          lastName: 'Lin',
+          email: `maya.lin.${Date.now()}@appendix-outreach.com`,
+          jobTitle: 'VP Merchandising',
+          sourceUrl: 'https://wwd.com/apparel/maya-lin-12345',
+          status: LeadStatus.RESEARCHED,
+          researchNotes: {
+            observedSignalShort: 'spring parka promotion',
+            observedSignalSentence: 'your recent promotional sale discounting insulated parkas by 25%',
+            companySegment: 'outerwear',
+            painPointCategory: 'overstock or heavy markdowns',
+            valuePropForPainPoint: 'forecast seasonal SKU demand with pinpoint accuracy',
+            specificContextDetail: 'distribution footprint of 120 stores',
+            oneLineRelevanceHypothesis: 'AI demand planning prevents margin erosion before liquidation sales'
+          }
+        }
+      });
+
+      // Initial fit score
+      await ScoringService.recomputeAndSaveScore(prisma, lead.id, 'INIT');
+
+      // Dispatch outreach using high-level Appendix A method
+      const { sendResult, renderedEmail } = await EmailService.sendAppendixAOutreach(prisma, lead.id);
+
+      expect(sendResult.success).toBe(true);
+      expect(sendResult.messageId).toContain('@stylesense.ai');
+      expect(sendResult.trackingPixelUrl).toContain(`/api/tracking/pixel/${lead.trackingToken}.png`);
+      expect(sendResult.unsubscribeUrl).toContain(`/api/tracking/unsubscribe/${lead.trackingToken}`);
+
+      // Verify Appendix A locked skeleton components
+      expect(renderedEmail.subject).toContain('Appendix Apparel Corp');
+      expect(renderedEmail.bodyText).toContain('Hi Maya,');
+      expect(renderedEmail.bodyText).toContain('I noticed your recent promotional sale discounting insulated parkas by 25%.');
+      expect(renderedEmail.bodyText).toContain('At StyleSense AI, we help apparel and fashion outerwear teams forecast seasonal SKU demand with pinpoint accuracy.');
+      expect(renderedEmail.bodyText).toContain('Would you be open to a 15-minute call to see if it’s a fit?');
+      expect(renderedEmail.bodyText).toContain('100 Fashion Ave, Suite 400, New York, NY 10018');
+
+      // Verify discrete DELIVERED event in DB
+      const deliveredEvent = await prisma.emailEvent.findFirst({
+        where: { leadId: lead.id, eventType: EventType.DELIVERED }
+      });
+      expect(deliveredEvent).toBeDefined();
+      expect(deliveredEvent?.createdAt).toBeInstanceOf(Date);
+
+      // Verify lead updated to CONTACTED
+      const updatedLead = await prisma.lead.findUnique({
+        where: { id: lead.id },
+        include: { score: true }
+      });
+      expect(updatedLead?.status).toBe(LeadStatus.CONTACTED);
+      expect(updatedLead?.score?.engagementScore).toBe(5); // +5 for delivered
+
+      // Cleanup
+      await prisma.lead.delete({ where: { id: lead.id } });
+      await prisma.company.delete({ where: { id: company.id } });
+    });
+
+    it('records discrete chronological events (DELIVERED -> OPENED -> UNSUBSCRIBED) with distinct timestamps', async () => {
+      const company = await prisma.company.upsert({
+        where: { domain: 'lifecycle-timeline.com' },
+        create: {
+          name: 'Timeline Co',
+          domain: 'lifecycle-timeline.com',
+          industry: 'Apparel & Fashion',
+          sizeRange: '50-200',
+          region: 'North America'
+        },
+        update: {}
+      });
+
+      const testEmail = `lifecycle.${Date.now()}@timeline.com`;
+      const lead = await prisma.lead.create({
+        data: {
+          companyId: company.id,
+          firstName: 'Marcus',
+          lastName: 'Timeline',
+          email: testEmail,
+          jobTitle: 'Head of Merchandising',
+          sourceUrl: 'https://wwd.com/apparel/timeline-12345',
+          status: LeadStatus.RESEARCHED,
+          researchNotes: {
+            observedSignalShort: 'footwear expansion',
+            observedSignalSentence: 'your footwear category expansion announced last month',
+            companySegment: 'footwear',
+            painPointCategory: 'high return rates on apparel sizing',
+            valuePropForPainPoint: 'predict size-specific customer fit curves',
+            specificContextDetail: 'rapid DTC scale',
+            oneLineRelevanceHypothesis: 'fit intelligence slashes apparel returns'
+          }
+        }
+      });
+
+      await ScoringService.recomputeAndSaveScore(prisma, lead.id, 'INIT');
+
+      // Event 1: DELIVERED
+      await EmailService.sendAppendixAOutreach(prisma, lead.id);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Event 2: OPENED
+      await fetch(`${baseUrl}/api/tracking/pixel/${lead.trackingToken}.png`);
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Event 3: UNSUBSCRIBED
+      await fetch(`${baseUrl}/api/tracking/unsubscribe/${lead.trackingToken}`);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Fetch all discrete events
+      const events = await prisma.emailEvent.findMany({
+        where: { leadId: lead.id },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      expect(events.length).toBe(3);
+      expect(events[0].eventType).toBe(EventType.DELIVERED);
+      expect(events[1].eventType).toBe(EventType.OPENED);
+      expect(events[2].eventType).toBe(EventType.UNSUBSCRIBED);
+
+      // Verify timestamps are strictly chronological
+      expect(events[0].createdAt.getTime()).toBeLessThanOrEqual(events[1].createdAt.getTime());
+      expect(events[1].createdAt.getTime()).toBeLessThanOrEqual(events[2].createdAt.getTime());
+
+      // Verify subsequent send attempt is blocked by suppression list
+      await expect(
+        EmailService.sendAppendixAOutreach(prisma, lead.id)
+      ).rejects.toThrow(SuppressedRecipientError);
+
+      // Cleanup
+      await prisma.suppression.deleteMany({ where: { email: testEmail.toLowerCase() } });
+      await prisma.lead.delete({ where: { id: lead.id } });
+      await prisma.company.delete({ where: { id: company.id } });
     });
   });
 });

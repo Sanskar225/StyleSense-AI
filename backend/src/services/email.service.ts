@@ -10,6 +10,7 @@
 import { PrismaClient, LeadStatus } from '@prisma/client';
 import { ENV } from '../config/env.js';
 import { ScoringService } from './scoring.service.js';
+import { GroundingService, AppendixATokens } from './grounding.service.js';
 import crypto from 'crypto';
 
 export interface SendEmailOptions {
@@ -113,9 +114,41 @@ export class EmailService {
         console.error('[EMAIL_PROVIDER_ERROR] Failed to send via Resend:', err.message);
         throw err;
       }
+    } else if (ENV.EMAIL_PROVIDER === 'sendgrid' && ENV.SENDGRID_API_KEY) {
+      // Live SendGrid Provider
+      try {
+        const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ENV.SENDGRID_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            personalizations: [{ to: [{ email: options.toEmail, name: options.recipientName }] }],
+            from: { email: 'outreach@stylesense.ai', name: 'StyleSense AI' },
+            subject: options.subject,
+            content: [
+              { type: 'text/plain', value: options.bodyText },
+              { type: 'text/html', value: options.bodyHtml }
+            ],
+            headers: {
+              'List-Unsubscribe': `<${unsubscribeUrl}>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+            }
+          })
+        });
+
+        if (!response.ok && response.status !== 202) {
+          const errText = await response.text();
+          throw new Error(`SendGrid API failed (${response.status}): ${errText}`);
+        }
+      } catch (err: any) {
+        console.error('[EMAIL_PROVIDER_ERROR] Failed to send via SendGrid:', err.message);
+        throw err;
+      }
     } else {
       // Sandbox Provider (Default - works seamlessly without external keys, logs delivery details)
-      console.log(`[EMAIL_SANDBOX_SEND] Delivered outreach to ${options.toEmail} | Subject: "${options.subject}" | MessageId: ${messageId}`);
+      console.log(`[EMAIL_SANDBOX_SEND] Delivered outreach to ${options.toEmail} | Subject: "${options.subject}" | MessageId: ${messageId} | Provider: ${ENV.EMAIL_PROVIDER}`);
     }
 
     // 3. Atomically record DELIVERED event, update status, and recompute score in a single ACID transaction
@@ -158,5 +191,79 @@ export class EmailService {
       trackingPixelUrl,
       unsubscribeUrl
     };
+  }
+
+  /**
+   * High-level method to send Appendix A Cold Outreach directly to a lead.
+   * Extracts grounded research facts, validates Appendix A tokens,
+   * renders compliant MIME bodies, checks suppression, and dispatches via provider.
+   */
+  public static async sendAppendixAOutreach(
+    prisma: PrismaClient,
+    leadId: string,
+    options?: {
+      campaignId?: string;
+      senderName?: string;
+      subjectTemplateIndex?: 1 | 2 | 3;
+    }
+  ): Promise<{ sendResult: SendEmailResult; renderedEmail: any }> {
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      include: { company: true }
+    });
+
+    if (!lead) {
+      throw new Error(`Lead with ID ${leadId} not found`);
+    }
+
+    const notes = (lead.researchNotes as any) || {};
+    const tokens: AppendixATokens = {
+      first_name: lead.firstName,
+      company_name: lead.company.name,
+      observed_signal_short: notes.observedSignalShort || 'merchandise operations',
+      observed_signal_sentence: notes.observedSignalSentence || `your brand's current seasonal strategy`,
+      company_segment: notes.companySegment || 'apparel',
+      pain_point_category: notes.painPointCategory || 'overstock or heavy markdowns',
+      value_prop_for_pain_point: notes.valuePropForPainPoint || 'forecast seasonal SKU demand',
+      quantified_outcome_optional: notes.quantifiedOutcomeOptional,
+      specific_context_detail: notes.specificContextDetail || 'current market footprint',
+      one_line_relevance_hypothesis: notes.oneLineRelevanceHypothesis || 'StyleSense demand forecasting protects gross margins',
+      sender_name: options?.senderName || 'Sanskar Sinha',
+      proposed_time_window: notes.proposedTimeWindow,
+      optional_soft_proof_point: notes.optionalSoftProofPoint
+    };
+
+    const grounding = GroundingService.verifyGrounding(tokens, {
+      firstName: lead.firstName,
+      sourceUrl: lead.sourceUrl,
+      company: lead.company,
+      researchNotes: lead.researchNotes
+    });
+
+    if (!grounding.isValid) {
+      throw new Error(`Grounding verification failed: ${grounding.violations.join(', ')}`);
+    }
+
+    const trackingPixelUrl = this.getTrackingPixelUrl(lead.trackingToken);
+    const unsubscribeUrl = this.getUnsubscribeUrl(lead.trackingToken);
+    const rendered = GroundingService.renderEmail(
+      tokens,
+      trackingPixelUrl,
+      unsubscribeUrl,
+      options?.subjectTemplateIndex || 1
+    );
+
+    const sendResult = await this.sendOutreach(prisma, {
+      leadId: lead.id,
+      campaignId: options?.campaignId,
+      toEmail: lead.email,
+      recipientName: `${lead.firstName} ${lead.lastName}`,
+      subject: rendered.subject,
+      bodyText: rendered.bodyText,
+      bodyHtml: rendered.bodyHtml,
+      trackingToken: lead.trackingToken
+    });
+
+    return { sendResult, renderedEmail: rendered };
   }
 }

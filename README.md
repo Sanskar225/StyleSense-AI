@@ -377,12 +377,16 @@ Per **Section 3.2**, this module guarantees reliable email delivery, precise dis
 - **Case-Insensitive Normalization**: Emails are strictly sanitized using `.trim().toLowerCase()` so variations like `Prospect@Brand.COM` cannot evade suppression registered as `prospect@brand.com`.
 - **Enforced Status Code**: Blocked dispatches reject with **HTTP 409 Conflict** (`RECIPIENT_SUPPRESSED`) in RFC 7807 format.
 
-### 6. CAN-SPAM Regulatory Disclosure in Plain-Text & HTML
-Both email MIME representations contain mandatory CAN-SPAM disclosures:
+### 6. CAN-SPAM & GDPR Regulatory Disclosure in Plain-Text & HTML
+Both email MIME representations contain mandatory CAN-SPAM and GDPR disclosures:
 1. Sender identity: `StyleSense AI, Inc.`
 2. Physical postal address: `100 Fashion Ave, Suite 400, New York, NY 10018`
-3. Single-click unsubscribe URL with clear opt-out instructions.
-4. Non-deceptive subject line referencing verified apparel research.
+3. Single-click unsubscribe URL with clear opt-out instructions (supporting RFC 8058 `List-Unsubscribe=One-Click`).
+4. Non-deceptive subject line referencing verified apparel research facts.
+
+> [!IMPORTANT]
+> **GDPR / CAN-SPAM Regulatory Compliance Statement (Section 3.2 Requirement)**:
+> StyleSense AI strictly adheres to the U.S. CAN-SPAM Act and EU GDPR by including a valid physical postal address, non-deceptive subject lines, and an immediate one-click unsubscribe mechanism in every email, while pseudonymizing tracking IP addresses with one-way SHA-256 hashing and permanently honoring suppression across all future outbound dispatches.
 
 ---
 
